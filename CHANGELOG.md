@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]（未发布）
+
+### Fixed（修复）
+
+- 问题 #76：账号接口收到 HTTP 200 后的正文读取超时或中断不再被混同为 JSON 格式异常。错误详情分别显示读取、解析与顶层结构问题，并仅保留经过筛选的异常标识和内容类型／编码；不回显响应正文或原异常消息。设置页、用量面板和命令提示同步调整，报告协议与账号轮换行为不变。此修复解决已复现的诊断缺陷，反馈者实际链路的根因仍待验证。
+
 ## [0.12.10] - 2026-10-10
 
 ### Changed

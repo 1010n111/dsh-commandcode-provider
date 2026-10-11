@@ -6746,7 +6746,114 @@ test('getUsage() classifies HTTP 200 with unreadable bodies as invalid-response'
   const report = await adapter.getUsage('user_test_key')
   assert.equal(report.blocked, 'invalid-response')
   assert.equal(report.failures.length, 4)
-  assert.ok(report.failures.every((failure) => failure.includes('HTTP 200 returned an unreadable or invalid JSON body')))
+  assert.ok(report.failures.every((failure) => failure.includes('HTTP 200') && failure.includes('结构化数据解析失败')))
+})
+
+test('getUsage() distinguishes an interrupted HTTP 200 body and preserves safe cause identifiers', async () => {
+  const secret = 'synthetic-private-account-value'
+  const cause = Object.assign(new Error(secret), { code: 'ECONNRESET' })
+  const error = new TypeError(secret, { cause })
+  const adapter = makeAdapter({
+    fetchImpl: (async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) { controller.error(error) },
+    }), {
+      headers: { 'content-type': `application/json; account=${secret}`, 'content-encoding': 'br', 'x-private': secret },
+    })) as typeof fetch,
+  })
+  const report = await adapter.getUsage('user_test_key')
+  assert.equal(report.blocked, 'invalid-response')
+  assert.equal(report.failures.length, 4)
+  for (const failure of report.failures) {
+    assert.match(failure, /HTTP 200.*响应正文读取中断/)
+    assert.match(failure, /TypeError.*ECONNRESET/)
+    assert.match(failure, /内容类型：application\/json.*内容编码：br/)
+    assert.doesNotMatch(failure, /SyntaxError|JSON.*解析失败/)
+    assert.ok(!failure.includes(secret))
+  }
+})
+
+test('getUsage() reports a body timeout after HTTP 200 without blaming JSON parsing', async () => {
+  // 旧测试只覆盖 fetch 等待响应时超时；这里先返回响应，再让正文读取等待同一个取消信号。
+  const keepAlive = setTimeout(() => {}, 3_000)
+  try {
+    const adapter = makeAdapter({
+      options: () => ({ ...OPENAI_OPTIONS(), requestTimeoutMs: 30 }),
+      fetchImpl: (async (_input, init) => new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason), { once: true })
+        },
+      }))) as typeof fetch,
+    })
+    const started = Date.now()
+    const report = await adapter.getUsage('user_test_key')
+    assert.ok(Date.now() - started < 2_000)
+    assert.equal(report.blocked, 'invalid-response')
+    assert.equal(report.failures.length, 4)
+    assert.ok(report.failures.every((failure) => /HTTP 200.*读取响应正文超时.*TimeoutError/.test(failure)))
+    assert.ok(report.failures.every((failure) => !failure.includes('SyntaxError')))
+  } finally {
+    clearTimeout(keepAlive)
+  }
+})
+
+test('getUsage() distinguishes HTML and truncated JSON without exposing their contents', async () => {
+  const secret = 'synthetic-private-account-value'
+  for (const [body, contentType] of [
+    [`<html><body>${secret}</body></html>`, 'text/html'],
+    [`{"private":"${secret}"`, 'application/json'],
+  ]) {
+    const adapter = makeAdapter({
+      fetchImpl: (async () => new Response(body, { headers: { 'content-type': contentType! } })) as typeof fetch,
+    })
+    const report = await adapter.getUsage('user_test_key')
+    assert.equal(report.blocked, 'invalid-response')
+    for (const failure of report.failures) {
+      assert.match(failure, /结构化数据解析失败.*SyntaxError/)
+      assert.ok(failure.includes(`内容类型：${contentType}`))
+      assert.ok(!failure.includes(secret))
+      assert.doesNotMatch(failure, /读取中断|读取响应正文超时/)
+    }
+  }
+})
+
+test('getUsage() distinguishes valid JSON with a non-object root', async () => {
+  const cases: [unknown, string][] = [[[], '数组'], [null, '空值'], ['private-value', '字符串'], [1, '数字'], [true, '布尔值']]
+  for (const [body, shape] of cases) {
+    const report = await makeAdapter({ fetchImpl: (async () => Response.json(body)) as typeof fetch }).getUsage('user_test_key')
+    assert.equal(report.blocked, 'invalid-response')
+    assert.ok(report.failures.every((failure) => failure.includes(`顶层应为对象，实际为${shape}`)))
+    assert.ok(report.failures.every((failure) => !failure.includes('SyntaxError') && !failure.includes('private-value')))
+  }
+})
+
+test('getUsage() accepts a decoded JSON body with BOM even when headers are misleading', async () => {
+  // 标准 Response 的 text() 与 json() 都消除 UTF-8 BOM；头部仅是诊断线索，不能强制二次解压。
+  const adapter = makeAdapter({
+    fetchImpl: (async () => new Response('\uFEFF{"user":{"id":"u1","name":"A"}}', {
+      headers: { 'content-type': 'text/html', 'content-encoding': 'br' },
+    })) as typeof fetch,
+  })
+  const report = await adapter.getUsage('user_test_key')
+  assert.equal(report.blocked, undefined)
+  assert.equal(report.account?.name, 'A')
+  assert.deepEqual(report.failures, [])
+})
+
+test('getUsage() does not expose untrusted error identifiers or response header values', async () => {
+  const secret = 'synthetic-private-account-value'
+  const error = Object.assign(new Error(secret), { name: secret, code: secret })
+  // 环形异常链不应阻止失败报告结算。
+  Object.assign(error, { cause: error })
+  const adapter = makeAdapter({
+    fetchImpl: (async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) { controller.error(error) },
+    }), { headers: { 'content-type': `application/${secret}`, 'content-encoding': secret } })) as typeof fetch,
+  })
+  const report = await adapter.getUsage('user_test_key')
+  assert.equal(report.blocked, 'invalid-response')
+  assert.ok(report.failures.every((failure) => failure.includes('响应正文读取中断')))
+  assert.ok(report.failures.every((failure) => failure.includes('内容类型：其他') && failure.includes('内容编码：其他')))
+  assert.ok(report.failures.every((failure) => !failure.includes(secret)))
 })
 
 test('getUsage() reports a key no HTTP header can carry as an invalid key, not as a network outage', async () => {

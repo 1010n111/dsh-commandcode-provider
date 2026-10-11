@@ -466,8 +466,9 @@ declare class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Comman
   /**
    * Fetch one JSON GET and return its HTTP status with a parsed record. The
    * catalog, billing probe, and usage report each apply their own failure
-   * policy. Non-2xx and invalid JSON bodies come back without a record; only
-   * a fetch failure propagates to the caller.
+   * policy. Non-2xx and unusable bodies come back without a record; only
+   * a failure before receiving the response propagates to the caller.
+   * 正文读取、JSON 解析与顶层结构分别诊断，不能把已收到响应后的断流当成格式错误。
    *
    * `timeoutMs` is the caller's budget, unless it provides its own signal.
    * The usage report passes the connection's request budget rather than the

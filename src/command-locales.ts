@@ -59,7 +59,7 @@ export const commandcodeCommand: Record<LocaleId, Record<CommandCodeCommandKey, 
     blockedServiceUnavailable:
       '⚠️ Command Code 服务暂时不可用（5xx），稍后重试',
     blockedInvalidResponse:
-      '⚠️ Command Code 返回了无法读取的响应 — 请检查宿主的 HTTP 代理或响应解压配置',
+      'Command Code 响应正文读取或解析失败，请根据下方详情排查并重试',
     blockedNetwork:
       '⚠️ 无法连接 Command Code 服务 — 请检查网络或 API 地址',
     planLine: '  📦 套餐    {name}{status}{period}',
@@ -94,7 +94,7 @@ export const commandcodeCommand: Record<LocaleId, Record<CommandCodeCommandKey, 
     blockedServiceUnavailable:
       '⚠️ Command Code service temporarily unavailable (5xx); try again later',
     blockedInvalidResponse:
-      '⚠️ Command Code returned an unreadable response — check the host HTTP proxy or response decoding',
+      'Reading or parsing the Command Code response failed; check the details below and retry',
     blockedNetwork:
       '⚠️ could not reach the Command Code service — check your network or the API base setting',
     planLine: '  📦 Plan     {name}{status}{period}',

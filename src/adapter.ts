@@ -1710,6 +1710,60 @@ type UsageEndpointFailure =
   | { kind: 'invalid-response'; status: number }
   | { kind: 'transport' }
 
+/** 仅在宿主内部区分阶段；报告继续通过既有 failures 文本传递，避免更改严格远端协议。 */
+type JsonResponseFailure =
+  | { stage: 'read'; identifiers: readonly string[]; timedOut: boolean }
+  | { stage: 'parse' }
+  | { stage: 'shape'; shape: string }
+
+const JSON_READ_ERROR_NAMES = new Set(['Error', 'TypeError', 'SyntaxError', 'AbortError', 'TimeoutError'])
+const JSON_READ_ERROR_CODES = new Set([
+  'ECONNRESET', 'ETIMEDOUT', 'EPIPE', 'ERR_STREAM_PREMATURE_CLOSE', 'ERR_INVALID_STATE',
+  'UND_ERR_SOCKET', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_ABORTED', 'Z_DATA_ERROR', 'Z_BUF_ERROR',
+])
+const JSON_CONTENT_TYPES = new Set([
+  'application/json', 'application/problem+json', 'text/html', 'text/plain', 'application/octet-stream',
+])
+const JSON_CONTENT_ENCODINGS = new Set(['identity', 'gzip', 'x-gzip', 'deflate', 'br', 'zstd'])
+
+/** 原异常消息可能包含正文、账号或地址，只保留白名单标识，并有界读取 cause 链。 */
+function jsonReadErrorIdentifiers(error: unknown): string[] {
+  const identifiers = new Set<string>()
+  const seen = new Set<unknown>()
+  let current = error
+  for (let depth = 0; depth < 4 && isRecord(current) && !seen.has(current); depth++) {
+    seen.add(current)
+    if (typeof current.name === 'string' && JSON_READ_ERROR_NAMES.has(current.name)) identifiers.add(current.name)
+    if (typeof current.code === 'string' && JSON_READ_ERROR_CODES.has(current.code)) identifiers.add(current.code)
+    current = current.cause
+  }
+  return [...identifiers]
+}
+
+/** 响应头只作为线索：不据此拒绝可解析正文，也不把未经筛选的头值放入账号报告。 */
+function jsonResponseMetadata(response: Response): string[] {
+  const metadata: string[] = []
+  const contentType = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()
+  if (contentType) metadata.push(`内容类型：${JSON_CONTENT_TYPES.has(contentType) ? contentType : '其他'}`)
+  const encoding = response.headers.get('content-encoding')?.trim().toLowerCase()
+  if (encoding) metadata.push(`内容编码：${JSON_CONTENT_ENCODINGS.has(encoding) ? encoding : '其他'}`)
+  return metadata
+}
+
+function jsonResponseFailureDetail(response: Response, failure: JsonResponseFailure): string {
+  let detail: string
+  if (failure.stage === 'read') {
+    const reason = failure.timedOut ? '读取响应正文超时' : '响应正文读取中断'
+    detail = `${reason}${failure.identifiers.length === 0 ? '' : `（${failure.identifiers.join(' / ')}）`}`
+  } else if (failure.stage === 'parse') {
+    detail = '响应正文不是有效的 JSON（结构化数据解析失败；SyntaxError）'
+  } else {
+    detail = `响应 JSON 顶层应为对象，实际为${failure.shape}`
+  }
+  const metadata = jsonResponseMetadata(response)
+  return `${detail}${metadata.length === 0 ? '' : `；${metadata.join('；')}`}`
+}
+
 function classifyTotalFailure(
   failures: readonly string[],
   failed: readonly UsageEndpointFailure[],
@@ -2517,8 +2571,9 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
   /**
    * Fetch one JSON GET and return its HTTP status with a parsed record. The
    * catalog, billing probe, and usage report each apply their own failure
-   * policy. Non-2xx and invalid JSON bodies come back without a record; only
-   * a fetch failure propagates to the caller.
+   * policy. Non-2xx and unusable bodies come back without a record; only
+   * a failure before receiving the response propagates to the caller.
+   * 正文读取、JSON 解析与顶层结构分别诊断，不能把已收到响应后的断流当成格式错误。
    *
    * `timeoutMs` is the caller's budget, unless it provides its own signal.
    * The usage report passes the connection's request budget rather than the
@@ -2529,22 +2584,48 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
     headers: Record<string, string>,
     timeoutMs: number = MODELS_TIMEOUT_MS,
     signal?: AbortSignal,
-  ): Promise<{ status: number; record?: Record<string, unknown>; invalidResponse?: boolean }> {
+  ): Promise<{ status: number; record?: Record<string, unknown>; responseFailure?: string }> {
+    const requestSignal = signal ?? AbortSignal.timeout(timeoutMs)
     const response = await this.fetchImpl(url, {
       headers,
       // A hung account endpoint must not stall the picker / usage card forever.
-      signal: signal ?? AbortSignal.timeout(timeoutMs),
+      signal: requestSignal,
     })
     if (!response.ok) return { status: response.status }
+    let text: string
+    try {
+      text = await response.text()
+    } catch (error: unknown) {
+      const identifiers = jsonReadErrorIdentifiers(error)
+      if (requestSignal.aborted) {
+        for (const identifier of jsonReadErrorIdentifiers(requestSignal.reason)) {
+          if (!identifiers.includes(identifier)) identifiers.push(identifier)
+        }
+      }
+      const timedOut = identifiers.includes('TimeoutError') || identifiers.includes('ETIMEDOUT')
+        || identifiers.includes('UND_ERR_BODY_TIMEOUT')
+      return {
+        status: response.status,
+        responseFailure: jsonResponseFailureDetail(response, { stage: 'read', identifiers, timedOut }),
+      }
+    }
     let parsed: unknown
     try {
-      parsed = await response.json()
+      parsed = JSON.parse(text)
     } catch {
-      return { status: response.status, invalidResponse: true }
+      return {
+        status: response.status,
+        // JSON.parse 的原异常会回显正文片段；只保留解析阶段与固定异常名。
+        responseFailure: jsonResponseFailureDetail(response, { stage: 'parse' }),
+      }
     }
-    return isRecord(parsed)
-      ? { status: response.status, record: parsed }
-      : { status: response.status, invalidResponse: true }
+    if (isRecord(parsed)) return { status: response.status, record: parsed }
+    const shape = parsed === null ? '空值' : Array.isArray(parsed) ? '数组'
+      : typeof parsed === 'string' ? '字符串' : typeof parsed === 'number' ? '数字' : '布尔值'
+    return {
+      status: response.status,
+      responseFailure: jsonResponseFailureDetail(response, { stage: 'shape', shape }),
+    }
   }
 
   /**
@@ -2760,14 +2841,14 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
 
     const getJson = async (path: string): Promise<Record<string, unknown> | undefined> => {
       try {
-        const { status, record, invalidResponse } = await this.fetchJson(
+        const { status, record, responseFailure } = await this.fetchJson(
           `${base}${path}`,
           headers,
           connection.requestTimeoutMs,
         )
         if (record === undefined) {
-          failures.push(`${path}: HTTP ${status}${invalidResponse ? ' returned an unreadable or invalid JSON body' : ''}`)
-          failed.push(invalidResponse ? { kind: 'invalid-response', status } : { kind: 'http', status })
+          failures.push(`${path}: HTTP ${status}${responseFailure ? `；${responseFailure}` : ''}`)
+          failed.push(responseFailure ? { kind: 'invalid-response', status } : { kind: 'http', status })
           return undefined
         }
         return record

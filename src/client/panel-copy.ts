@@ -151,7 +151,7 @@ export const PANEL_COPY_ZH: Record<PanelKey, string> = {
   errorNetwork: '无法连接 Command Code 服务',
   errorNetworkHint: '所有请求都没有到达服务端。请检查网络连接或 API 地址设置。',
   errorInvalidResponse: 'Command Code 响应无法读取',
-  errorInvalidResponseHint: '请求已收到响应，但内容无法解析。请检查宿主的 HTTP 代理或响应解压配置。',
+  errorInvalidResponseHint: '已收到响应，但正文读取或解析失败。下方详情可区分读取超时、中断与格式异常；可先点击刷新重试。',
   errorGeneric: '用量获取失败',
 }
 
@@ -206,7 +206,7 @@ export const PANEL_COPY_EN: Record<PanelKey, string> = {
   errorNetwork: 'Could not reach the Command Code service',
   errorNetworkHint: 'No request reached the server. Check your network connection or the API base setting.',
   errorInvalidResponse: 'Could not read the Command Code response',
-  errorInvalidResponseHint: 'The requests received responses, but their bodies could not be parsed. Check the host HTTP proxy or response decoding.',
+  errorInvalidResponseHint: 'Responses arrived, but reading or parsing their bodies failed. Details below distinguish timeouts, interrupted reads, and invalid formats. Try Refresh again.',
   errorGeneric: 'Could not fetch account usage',
 }
 
