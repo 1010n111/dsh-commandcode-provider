@@ -18,6 +18,7 @@ Unofficial [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harnes
 
 - **Plugin bundle** — install into any dsh profile with `dsh plugin add`; registers a `commandcode` provider route with a live model catalog.
 - **Dedicated settings page** — one account list (keys, sign-in, live quota, dedicated models), model visibility, privacy switches, and connection options.
+- **Model analysis** — open from Settings to inspect tokens, estimated cost, response timing and failures/retries by recent sessions or date range, including closed sessions with inherited fork usage excluded. Compare fixed-workload prices and objective capabilities without automatic recommendations or quality scores. Missing data and scan limits remain visible; complete date ranges can be extrapolated to 30 days. Estimates use current prices and are not invoices. See [scope and limitations](docs/模型成本与性能分析.md).
 - **Works in the terminal too** — the same install serves a [dsh-TUI](#terminal-ui-dsh-tui) profile, with its own **`/settings` → Command Code** page for the API key and the model controls.
 - **Models-page key card** — the **Settings → Models → Command Code** card carries the key status, a paste field, and the sign-in button inline.
 - **In-browser sign-in for keys** — start the official authorization flow (the same one `cmd login` runs) from the settings page; the approved key lands in the local credential service automatically. Manual paste remains the fallback.
@@ -35,13 +36,12 @@ See [Screenshots](#screenshots) below for what the UI looks like.
 
 ## Install
 
-This release supports **dsh 0.2.0-rc.2, dsh 0.2.1-alpha.1 and dsh 0.2.1-alpha.2, and nothing else** —
-the plugin's peer range is exactly those three verified versions, and its
-compatibility records name them alone. `0.2.0-rc.2` is what
-`npm i -g @deepseek-ai/dsh@latest` and the official desktop build ship, so it is
-the version most users are on; `0.2.1-alpha.2` is the upstream `alpha` channel
-today, and `0.2.1-alpha.1` stays in the range because it was already verified, so
-a profile pinned to it keeps working:
+This release supports **dsh 0.2.0-rc.2 (RC) and dsh 0.2.1-alpha.2 (alpha)**.
+The compatibility policy keeps the latest verified official release candidate
+and alpha release, one per channel. These match npm's `latest` and `alpha` tags
+as checked on 2026-10-11. The peer range and compatibility records name only
+these two exact versions. A profile on `0.2.1-alpha.1` must upgrade its engine
+before installing this build:
 
 ```sh
 dsh plugin --profile web add @mars-sea/dsh-commandcode-provider@latest
@@ -75,7 +75,7 @@ Fresh pnpm 10 marketplace generations are supported directly. Every Harness pack
 Update with the same tag you installed with:
 
 ```sh
-dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@latest     # dsh 0.2.0-rc.2, 0.2.1-alpha.1 or 0.2.1-alpha.2
+dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@latest     # dsh 0.2.0-rc.2 or 0.2.1-alpha.2
 dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@0.9.1      # older dsh (0.5.0 line, unmaintained)
 ```
 
@@ -149,7 +149,7 @@ cmd login                               # writes ~/.commandcode/auth.json
         cwd: !!js process.cwd()
 ```
 
-**Engine version.** The plugin is maintained against exactly three engines: **dsh 0.2.0-rc.2**, **dsh 0.2.1-alpha.1** and **dsh 0.2.1-alpha.2**. Its `@deepseek-ai/dsh-*` peers use the disjunction `0.2.0-rc.2 || 0.2.1-alpha.1 || 0.2.1-alpha.2`, `@deepseek-ai/cordis` is pinned to `~4.0.4 || ~4.0.5-alpha.1` and `@deepseek-ai/schemastery` to `~3.18.4 || ~3.18.5-alpha.1` (each branch shipped with its engine), and `dsh.compatibility.dshReleases` records exactly those three releases. That disjunction is deliberate and load-bearing: unlike a caret or a `>=` range it admits **no** adjacent prerelease, release candidate, or stable patch version, every branch is a bare version, and `npm run test:engine` runs the whole suite against **all three** engines before a release. DSH itself refuses to load a plugin whose `@deepseek-ai/dsh*` peers do not admit the running engine, so a range that silently admitted an unverified neighbour would be worse than no range at all. On any other engine the settings page, the message envelope, or the request-image budget may not line up — install the last release that supported your engine (see [Install](#install)) instead of forcing this one.
+**Engine version.** The plugin is maintained against two engines: **dsh 0.2.0-rc.2** and **dsh 0.2.1-alpha.2**. Its `@deepseek-ai/dsh-*` peers use `0.2.0-rc.2 || 0.2.1-alpha.2`, while `@deepseek-ai/cordis` and `@deepseek-ai/schemastery` retain their engine-paired ranges `~4.0.4 || ~4.0.5-alpha.1` and `~3.18.4 || ~3.18.5-alpha.1`. Compatibility records contain exactly these two engines. Each channel upgrade replaces its previous version after verification; it does not accumulate supported releases or admit unverified neighbours. Both `npm run test:engine` and `npm run test:install` check each retained version. See [Install](#install) for older engines.
 
 ## Usage dashboard
 
@@ -236,7 +236,7 @@ Command Code can serve a request only through upstreams that retain no prompts o
 
 **Off by default.** Turn it on with the *"Zero data retention (ZDR)"* toggle (`zdr`) in the Privacy & security card, or in your profile config. How this plugin implements it:
 
-- The header is sent on **every chat request** while ZDR is on. The plugin maintains an informational exception list (`KNOWN_NON_ZDR_MODELS`, synced from the official CLI — 21 models as of 2026-10-08, e.g. `xai/grok-4.5`, `stealth/glyph-cluster:free`, `stepfun/Step-3.7-Flash`, `meta/muse-spark-1.3`). A model without an available ZDR upstream fails with `422 cmd_zdr_no_providers`; the request is never retried without the header.
+- The header is sent on **every chat request** while ZDR is on. The plugin maintains an informational exception list (`KNOWN_NON_ZDR_MODELS`, synced from the official CLI — 22 models as of 2026-10-13, e.g. `xai/grok-4.5`, `stealth/glyph-cluster:free`, `stepfun/Step-3.7-Flash`, `meta/muse-wonder-1.0`). A model without an available ZDR upstream fails with `422 cmd_zdr_no_providers`; the request is never retried without the header.
 - If a refusal still happens (coverage churn, or no ZDR upstream with spare capacity at that moment), the error names the cause and how to turn ZDR off, instead of surfacing as a bare HTTP 422.
 - **ZDR usually costs more**: capacity is limited and billed at each upstream's pass-through rates, and which upstream serves a request can change per request. The session-cost readout keeps quoting the ordinary catalog rates; the real per-request price shows in Command Code's Studio usage page.
 - Works on every plan; plan credits meter ZDR requests at the plan's default allowance.

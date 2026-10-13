@@ -47,6 +47,7 @@ export interface CommandCodeSettingsProps {
   save(): void
   discard(): void
   refreshUsage(): void
+  openAnalytics?(): void
   refreshCredentials(): void
   beginLogin(targetRef?: string): void
   cancelLogin(): void
@@ -1645,6 +1646,7 @@ export function CommandCodeSettingsPage(props: CommandCodeSettingsProps) {
     <section className={bar.visible ? 'cc-section cc-sectionWithBar' : 'cc-section'} aria-label={t('title')}>
       <h2 className="cc-title">{t('title')}</h2>
       <p className="cc-intro">{t('intro')}</p>
+      {props.openAnalytics ? <Button variant="ghost" size="sm" onClick={props.openAnalytics}>{t('openAnalytics')}</Button> : null}
       {!state.writable ? <p className="cc-readOnly" role="status">{t('readOnly')}</p> : null}
       <AccountsCard
         t={t}

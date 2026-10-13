@@ -215,6 +215,7 @@ const MODEL_PRICE_ROWS: readonly ModelPriceRow[] = [
   { id: 'muse-spark-1.2-contributor', rates: [0.1, 0.2, 0.002], allowance: { go: 6, goat: 20, pro: 30 } },
   { id: 'muse-spark-1.3', rates: [1.25, 4.25, 0.15], allowance: { go: 6, goat: 20, pro: 30 } },
   { id: 'muse-spark-1.3-contributor', rates: [0.1, 0.2, 0.002], allowance: { go: 6, goat: 20, pro: 30 } },
+  { id: 'muse-wonder-1.0', rates: [4, 20, 0.2], allowance: { go: 6, goat: 20, pro: 20 } },
   { id: 'nemotron-3-ultra', rates: [0.6, 2.4, 0.12], allowance: { go: 6, goat: 20, pro: 30 } },
   { id: 'qwen-3.6-max', rates: [1.3, 7.8, 0.26, 1.63], allowance: { go: 6, goat: 20, pro: 30 } },
   { id: 'qwen-3.6-plus', rates: [0.5, 3, 0.1], allowance: { go: 10, goat: 33, pro: 43 }, contextTiers: [{"maxContext":256000,"rates":[0.5,3,0.1]},{"rates":[2,6,0.2]}] },

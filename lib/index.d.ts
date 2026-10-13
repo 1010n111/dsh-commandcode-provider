@@ -1,5 +1,5 @@
-import z from "@deepseek-ai/schemastery";
 import { GenerateOptions, LlmAdapter, LlmError, LlmImageRequestPricing, LlmModelInfo, LlmProviderInfo, LlmResolvedModelInfo, ResolvedRetryPolicy, StreamChunk, projectOffloadedImages, requiredImageOffload } from "@deepseek-ai/dsh-llm";
+import z from "@deepseek-ai/schemastery";
 import { CredentialRef } from "@deepseek-ai/dsh-credentials";
 import { TypertRemoteService, TypertSchema } from "@deepseek-ai/dsh-typert-protocol";
 import { WebRuntime, WebSearchProvider, WebSearchRequest, WebSearchResult } from "@deepseek-ai/dsh-web";
@@ -61,7 +61,7 @@ type CommandCodeProtocol = 'cli' | 'openai' | 'messages';
 declare const DEFAULT_MAX_OUTPUT_TOKENS = 131072;
 //#endregion
 //#region src/adapter.d.ts
-declare const COMMAND_CODE_CLI_VERSION = "1.79.2";
+declare const COMMAND_CODE_CLI_VERSION = "1.81.0";
 declare const DEFAULT_API_BASE = "https://api.commandcode.ai";
 /**
  * The output budget this bundle asks for, and the ceiling it will never exceed.
@@ -979,7 +979,7 @@ declare const KNOWN_EFFORTS: Readonly<Record<string, readonly string[]>>;
 declare const KNOWN_IMAGE_MODELS: ReadonlySet<string>;
 /**
  * Models WITHOUT a zero-data-retention upstream, per the official CLI's own
- * registry (`command-code@1.79.2` `dist/cli.mjs`): `modelSupportsZdr(id)` is
+ * registry (`command-code@1.81.0` `dist/cli.mjs`): `modelSupportsZdr(id)` is
  * exactly `!nonZdrSet.has(canonicalize(id))`, and `knownModelSupportsZdr`
  * carries the same membership in the sibling route table — the UNION of both
  * is this set. Reading only the sibling route table dropped
@@ -1051,11 +1051,12 @@ declare const KNOWN_THINKING_MODELS: ReadonlySet<string>;
  * `/docs/plans/max` and `/docs/resources/pricing-limits`). Each plan's model
  * list is a superset of the one below it: Go ⊂ GOAT ⊂ Pro ⊂ Provider/Max.
  * Models absent from every plan list (Claude Opus/Fable, Fugu Ultra) are
- * Provider-tier. Re-verified at command-code@1.79.2 (2026-10-09): 87 catalog
- * ids at 54/64/78/86 cumulative, a strict superset chain. Mistral Large 4
+ * Provider-tier. Re-verified at command-code@1.81.0 (2026-10-13): 88 catalog
+ * ids at 54/64/78/86/88 cumulative, a strict superset chain. Mistral Large 4
  * (1.75.0) was the only addition at the 1.77.0 check; the 1.78.0/1.79.0 pair
  * added Claude Haiku 5.5 at Pro and the free Glyph Cluster preview at Go.
- * 1.79.2 lowers Haiku 5.5's minimum plan to GOAT; every other tier is unchanged.
+ * 1.79.2 lowers Haiku 5.5's minimum plan to GOAT; 1.80.0 adds Muse Wonder at
+ * Max and nothing else moves. Every other tier is unchanged.
  * The only removals since 1.49.0 are the two retired stealth previews (Pixel
  * Canary at 1.73.1, Space Bunny Alpha at 1.74.3). Per-entry tags below name the
  * releases that added or moved each row.
@@ -1695,6 +1696,74 @@ declare class AccountEnrollmentManager {
   private recovered;
 }
 //#endregion
+//#region src/cost-facts.d.ts
+interface CostTokens {
+  uncachedInputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+//#endregion
+//#region src/analytics-wire.d.ts
+type AnalyticsQuery = {
+  mode: 'recent';
+  limit: number;
+} | {
+  mode: 'range';
+  from: number;
+  to: number;
+};
+interface AnalyticsMetrics {
+  sessions: number;
+  requests: number;
+  completed: number;
+  failed: number;
+  cancelled: number;
+  unknown: number;
+  retries: number;
+  usageSamples: number;
+  pricedRequests: number;
+  cost: number;
+  tokens: CostTokens;
+  latencySamples: number;
+  latencyMs: number;
+  ttftSamples: number;
+  ttftMs: number;
+  decodeSamples: number;
+  decodeMs: number;
+  decodeTokens: number;
+}
+interface AnalyticsModel extends AnalyticsMetrics {
+  id: string;
+}
+interface AnalyticsScenario {
+  id: string;
+  name: string;
+  contextWindow: number | null;
+  images: boolean;
+  efforts: string[];
+  cost: number;
+  pricedRequests: number;
+  excludedRequests: number;
+  unknownRequests: number;
+}
+interface AnalyticsReport {
+  generatedAt: number;
+  pricingKey: number;
+  query: AnalyticsQuery;
+  status: 'ready' | 'unavailable';
+  scannedSessions: number;
+  matchedSessions: number;
+  unreadableSessions: number;
+  skippedSessions: number;
+  truncated: boolean;
+  catalogUnavailable: boolean;
+  totals: AnalyticsMetrics;
+  models: AnalyticsModel[];
+  scenarios: AnalyticsScenario[];
+  monthlyEstimate: number | null;
+}
+//#endregion
 //#region src/usage-remote.d.ts
 /**
  * The browser-login face the usage service exposes (`commandcode/login*`).
@@ -1737,6 +1806,7 @@ interface CommandCodeUsageDeps<C extends CommandCodeConnectionOptions = CommandC
   /** The browser-login flow (wired by the plugin entry); see {@link LoginFlowFacade}. */
   login?: LoginFlowFacade;
   enrollment?: AccountEnrollmentManager;
+  analytics?: (query: AnalyticsQuery, signal?: AbortSignal) => Promise<AnalyticsReport>;
 }
 /**
  * The Remote receiver: a Cordis service the Gateway resolves by key
@@ -1769,6 +1839,7 @@ declare class CommandCodeUsageService<C extends CommandCodeConnectionOptions = C
    * open page without a rebuild.
    */
   prices(): Promise<CommandCodePriceTable>;
+  analytics(query: AnalyticsQuery): Promise<AnalyticsReport>;
   /**
    * Start (or rejoin) a browser-login attempt and return its fresh status —
    * `waiting` carrying the Studio URL. Rejects when the flow cannot start

@@ -17,8 +17,8 @@ import {
   supportsZeroDataRetention,
 } from '../src/capabilities.ts'
 
-test('the ZDR exception list is the CLI registry exclusion set (command-code@1.79.2)', () => {
-  // Re-verified at `dist/cli.mjs` 1.79.2: the negated canonical-ID membership
+test('the ZDR exception list is the CLI registry exclusion set (command-code@1.81.0)', () => {
+  // Re-verified at `dist/cli.mjs` 1.81.0: the negated canonical-ID membership
   // predicates retain the same union across both route tables, cross-checked
   // against the public catalog. A sync that moves
   // membership must be a deliberate diff. 1.74.1 dropped `meituan/LongCat-2.0`
@@ -28,7 +28,9 @@ test('the ZDR exception list is the CLI registry exclusion set (command-code@1.7
   // neither and filters both out of `listSelectableModelIds()`, so they left
   // this list with it. 1.79.0 added the free `stealth/glyph-cluster:free`
   // preview — the one entry the pricing page itself flags "Not routed under
-  // ZDR" — bringing the set back to 21.
+  // ZDR" — bringing the set back to 21. 1.80.0 ("Add Muse Wonder") added
+  // `meta/muse-wonder-1.0` to the same exclusion set: 22 members, and the
+  // 1.80.0 -> 1.81.0 step moved no membership at all.
   assert.deepEqual([...KNOWN_NON_ZDR_MODELS].sort(), [
     'MiniMaxAI/MiniMax-M3',
     'Qwen/Qwen3.8-Max-0902',
@@ -38,6 +40,7 @@ test('the ZDR exception list is the CLI registry exclusion set (command-code@1.7
     'meta/muse-spark-1.2-contributor',
     'meta/muse-spark-1.3',
     'meta/muse-spark-1.3-contributor',
+    'meta/muse-wonder-1.0',
     'minimax/minimax-m3-free',
     'poolside/laguna-s-2.1-free',
     'sakana/fugu-ultra',

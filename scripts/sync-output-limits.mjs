@@ -112,9 +112,24 @@ const normalizeId = (id) => id.toLowerCase().replace(/[^a-z0-9]/g, '')
  *   32768 is therefore the family's established ceiling and the 3.1 inherits it
  *   rather than starting at DEFAULT_MESSAGES_MAX_TOKENS. Recorded deliberately:
  *   it is one uniform family-wide figure, not a split vote.
+ *
+ * - `inclusionai/ling-3.0-flash-sante:free` (command-code@1.81.0 check): this
+ *   row USED to resolve on its own as "2 provider(s), unanimous" (32768). It
+ *   stops resolving for two independent reasons, neither of which is a change
+ *   to the model: (a) models.dev carries no `inclusionai` provider key at all,
+ *   so `OFFICIAL_PROVIDERS.inclusionai` resolves to nothing and the
+ *   vendor-first rule falls through; (b) the third-party rows are no longer
+ *   unanimous — `kilo`, `novita-ai` and `openrouter` file 32768 while `vercel`
+ *   files 32000, so rule 3 declines to guess. 32768 is still the right figure:
+ *   it is the Ling family's established ceiling (the same one the 3.1 inherits
+ *   below) and carries a 3-to-1 majority. Pinned here so a regeneration does
+ *   not silently drop a LIVE model's ceiling back to the 131072 default — the
+ *   model is still in the public catalog, still Go-tier, still free, and still
+ *   reachable from the picker.
  */
 const MANUAL_CEILINGS = {
   'inclusionai/ling-3.1-flash:free': { value: 32768, via: 'manual: no models.dev row; Ling family ceiling 32768, see MANUAL_CEILINGS' },
+  'inclusionai/ling-3.0-flash-sante:free': { value: 32768, via: 'manual: no vendor row and no longer unanimous (vercel 32000); Ling family ceiling 32768, see MANUAL_CEILINGS' },
 }
 
 /** The vendor namespace of a catalog id, or its family for a bare one. */

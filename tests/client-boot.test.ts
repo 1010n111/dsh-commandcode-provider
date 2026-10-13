@@ -26,6 +26,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import { Context, Service } from '@deepseek-ai/cordis'
+import { buildAnalytics } from '../src/analytics.ts'
 // `apply`/`inject` pull in the React tree, which imports `*.module.css`; static
 // imports hoist above the `register()` above, so this must stay dynamic.
 const { apply, inject } = await import('../src/client/index.ts')
@@ -93,7 +94,7 @@ async function boot(
   /** Calls the plugin's own Remote namespace received, by method. */
   const credentialCalls = { describe: 0, set: 0, unset: 0 }
   const credentialStore = new Map<string, string>()
-  const commandCodeCalls = { report: 0, models: 0, prices: 0, loginStatus: 0 }
+  const commandCodeCalls = { report: 0, models: 0, prices: 0, loginStatus: 0, analytics: 0 }
 
   /**
    * Mount one Remote namespace exactly as api-gateway does: a Cordis `Service`
@@ -155,6 +156,7 @@ async function boot(
               }
               if (method === 'unset') { credentialCalls.unset++; credentialStore.delete(_args[0] as string) }
             }
+            if (ns === 'commandcode' && method === 'analytics') return { ok: true, value: buildAnalytics([], _args[0] as import('../src/analytics-wire.ts').AnalyticsQuery, { models: [], peakHours: [] }, []) }
             return { ok: true, value: ns === 'commandcode' && method === 'report' ? { accounts: [] } : undefined }
           }
         }
@@ -308,6 +310,27 @@ async function boot(
 }
 
 // Client boot
+
+test('设置页可直接打开模型分析，未打开时不扫描历史，钩子传递查询结果', async () => {
+  const { registered, selectedPanels, commandCodeCalls } = await boot({ immediateUsageMount: false })
+  const settings = registered.get('commandcode')![0]!.inject!() as { openAnalytics(): void }
+  const panel = registered.get('commandcode-panel')!.find(entry => entry.name === 'main')!.inject!() as import('../src/client/panel-view.tsx').PanelInjected
+  assert.equal(commandCodeCalls.analytics, 0)
+  assert.equal(panel.hooks.commandCodeSettings.getSnapshot().sidebarQuota, false)
+  settings.openAnalytics()
+  assert.equal(selectedPanels.at(-1), 'commandcode-panel')
+  assert.equal(panel.hooks.commandCodePanelMode!.getSnapshot(), 'analysis')
+  panel.refreshAnalytics!({ mode: 'recent', limit: 3 })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const snapshot = panel.hooks.commandCodeAnalytics!.getSnapshot()
+  assert.equal(snapshot.status, 'ready')
+  assert.deepEqual(snapshot.report!.query, { mode: 'recent', limit: 3 })
+  panel.open()
+  assert.equal(panel.hooks.commandCodePanelMode!.getSnapshot(), 'quota')
+  const degraded = await boot({ mountLayout: false })
+  const face = degraded.registered.get('commandcode')![0]!.inject!() as { openAnalytics?: () => void }
+  assert.equal(face.openAnalytics, undefined)
+})
 
 test('app registers the settings page and Models provider card when remote.credentials is mounted', async () => {
   const { registered } = await boot()

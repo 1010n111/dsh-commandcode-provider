@@ -80,33 +80,20 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   bump that should resolve cleanly still reports `ERESOLVE` against stale rc-era
   packages until the tree is rebuilt; `rm -rf node_modules` before judging a
   genuine conflict.
-- **The Harness peer range names exactly the VERIFIED releases — no more, no
-  fewer — and that is load-bearing.** 现行写法是三个精确版本的析取
-  `0.2.0-rc.2 || 0.2.1-alpha.1 || 0.2.1-alpha.2`。原 `^0.2.1-alpha.1` 会放行相邻预发布版及稳定
-  补丁版，并不等于只支持已验证的版本。That exactness is the point: every branch
-  is a bare version the release process actually ran `npm run test:engine`
-  against, and a range that quietly admitted a neighbour is how a broken pairing
-  stayed invisible (issue #43). A caret once pinned every peer to an engine four
-  releases old, so a fresh generation installed a second, stale copy of the
-  Harness beside the running engine instead of pairing with it; worse, it made
-  `npm test` structurally blind to engine drift, because a `link:`-installed
-  profile resolves the plugin's imports from the checkout rather than from the
-  engine. 为什么要写成多个分支：`@deepseek-ai/dsh` 的 npm `latest` 一直停在
-  `0.2.0-rc.2`（`alpha` 通道现在是 `0.2.1-alpha.2`，`0.2.1-alpha.1` 是它上一版），官方桌面端放出的也是 rc 版本，
-  而宿主 `dsh-app-boot` 的 `evaluatePluginCompatibility` 会拿运行中的 dsh 版本逐条
-  比对插件的每个 `@deepseek-ai/dsh*` peer，不匹配即抛
-  `ManagementFailure('incompatible-version')` 拒绝安装——单个精确版本因此把绝大多数
-  用户挡在门外（issue #77／#78）。析取写法是唯一同时满足两边的表达：它接纳三个已验证
-  引擎，且**不**放行任何相邻版本（0.2.0-rc.1、0.2.1-alpha.3、0.2.1-rc.1、0.2.1、
-  0.3.0-alpha.1 全部被拒）。已声明的引擎不随新版发布而移除：`0.2.1-alpha.1` 通过了矩阵验证，
-  钉在它上面的 profile 不该因为上游又发了一个 alpha 就被挡在门外——只有确认无法继续适配时才从范围里删除。The supported range is written VERBATIM in
-  `peerDependencies`, `devDependencies`, `dsh.compatibility.dsh` and `engines.dsh`,
-  and `tests/package.test.ts` fails if those four drift apart, if any branch stops
-  being a bare version, or if the branch set stops matching
-  `dsh.compatibility.dshReleases` exactly. Move the range and those records
-  together, and only once `npm run test:engine` passes against EVERY engine in the
-  set — 脚本默认就是矩阵，逐个引擎跑完整套件，只验证其中一个等于把另一个
-  「已声明兼容」的引擎放行却无人验证。
+- **兼容范围只保留两条通道的最新已验证版本。** 用户于 2026-10-11 确认维护
+  一个 RC（候选发布版）与一个 alpha（早期测试版）；当前为
+  `0.2.0-rc.2 || 0.2.1-alpha.2`，分别与当天核对的官方 npm `latest`、`alpha` 标签一致。
+  同通道升级在核对官方发布、接口及验证结果后替换旧版，不累加历史分支。
+  `0.2.1-alpha.1` 已退出当前兼容范围，其配置需升级引擎。
+  `@deepseek-ai/dsh-*` 的 `peerDependencies`、`devDependencies`、
+  `dsh.compatibility.dsh`、`engines.dsh` 及锁文件同批同步，
+  `dsh.compatibility.dshReleases` 只记录这两个版本。
+  每个分支必须为裸版本号，不能用 `^`、`~` 或 `>=` 放行未验证的相邻版本。
+  `tests/package.test.ts` 约束版本数量、通道与声明一致性；它不联网判断哪个版本最新，
+  该事实由升级审计核对。两个配套的 Cordis、Schemastery 范围仍按引擎配对维护。
+  宿主 `evaluatePluginCompatibility` 按运行中的 dsh 版本检查所有 Harness 对等依赖，
+  不匹配会拒绝加载，因此每条保留分支都须通过 `npm run test:engine` 与
+  `npm run test:install`。决策见[《决策记录》第八章第6条](../决策记录.md#八dsh-引擎兼容范围与验证边界)。
 - **`npm run test:engine` is the only check that can see a bundle which cannot
   load on its engine** (issue #43): by default it resolves EVERY release the
   manifest declares compatible, installs each one and checks them in turn
@@ -131,5 +118,5 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
 
 ## 二、流响应的宿主验证
 
-1. `npm run test:engine` 使用真实 DSH 的 `LlmRuntime`（模型运行时）及 `BlockAssembler`（响应块装配器），对每个已声明引擎（`0.2.0-rc.2`、`0.2.1-alpha.1`、`0.2.1-alpha.2`）各跑一遍：加载发布产物并交付合成响应。22 个场景覆盖三协议成功、正文截断、纯思考达到上限、工具断流、正文及工具取消、最终标记后多余内容，以及 OpenAI 尾部错误；确认唯一终态、失败关联标识、最终用量和中断工具快照。
+1. `npm run test:engine` 使用真实 DSH 的 `LlmRuntime`（模型运行时）及 `BlockAssembler`（响应块装配器），对每个已声明引擎（`0.2.0-rc.2`、`0.2.1-alpha.2`）各跑一遍：加载发布产物并交付合成响应。22 个场景覆盖三协议成功、正文截断、纯思考达到上限、工具断流、正文及工具取消、最终标记后多余内容，以及 OpenAI 尾部错误；确认唯一终态、失败关联标识、最终用量和中断工具快照。
 2. 宿主源码在失败或取消终态走请求错误分支，不进入工具执行；验证没有运行完整代理工具链。适配器本地锁和待读释放由回归测试覆盖；真实提供商异常、收费记录及远端连接实际关闭时间尚未实测。

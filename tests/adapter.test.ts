@@ -5575,6 +5575,12 @@ test('known thinking snapshot covers reasoning models without effort levels', ()
   assert.ok(!KNOWN_EFFORTS['meituan/LongCat-2.0'])
   assert.deepEqual(KNOWN_EFFORTS['meta/muse-spark-1.3'], ['low', 'medium', 'high', 'xhigh', 'max'])
   assert.deepEqual(KNOWN_EFFORTS['meta/muse-spark-1.3-contributor'], ['low', 'medium', 'high', 'xhigh'])
+  // command-code@1.80.0 ("Add Muse Wonder"): the Muse family's newest member and
+  // the only registry addition in the 1.79.2 -> 1.81.0 train. Four selectable
+  // levels like Muse Spark 1.1/1.2 (no `max`), so it is not an auto-reasoning
+  // model either.
+  assert.deepEqual(KNOWN_EFFORTS['meta/muse-wonder-1.0'], ['low', 'medium', 'high', 'xhigh'])
+  assert.ok(!KNOWN_THINKING_MODELS.has('meta/muse-wonder-1.0'))
   // GLM-5/5.1/5.2-Fast are NOT reasoning-capable (provider-table reasoning:false, docs
   // "Text input" only) — the 0.2.0 snapshot wrongly included them.
   assert.ok(!KNOWN_THINKING_MODELS.has('zai-org/GLM-5'))
@@ -5631,6 +5637,9 @@ test('known image models snapshot has stable anchor entries', () => {
   assert.ok(KNOWN_IMAGE_MODELS.has('google/gemini-3.8-flash'))
   assert.ok(KNOWN_IMAGE_MODELS.has('meta/muse-spark-1.3'))
   assert.ok(KNOWN_IMAGE_MODELS.has('meta/muse-spark-1.3-contributor'))
+  // command-code@1.80.0; Vision per the official registry and the CLI's
+  // inputModalities ["text","image","file"].
+  assert.ok(KNOWN_IMAGE_MODELS.has('meta/muse-wonder-1.0'))
   assert.ok(!KNOWN_IMAGE_MODELS.has('meituan/LongCat-2.0'))
   assert.ok(!KNOWN_IMAGE_MODELS.has('inclusionai/ling-3.0-flash-sante:free'))
   assert.ok(KNOWN_IMAGE_MODELS.has('xai/grok-4.6'))
@@ -5743,6 +5752,10 @@ test('known plan snapshot tiers models by the official plan pages', () => {
   )
   // Its predecessor stays Pro — the two must not collapse into one tier.
   assert.equal(KNOWN_PLANS['gpt-6-sol'], 'pro')
+  // command-code@1.80.0: Muse Wonder joins it on Max ("Available on Max and
+  // above." — every lower tier false, individual-max/ultra and teams-pro true).
+  assert.equal(KNOWN_PLANS['meta/muse-wonder-1.0'], 'max')
+  assert.equal(planLabel('meta/muse-wonder-1.0'), 'Max')
   // command-code@1.70.0: Ling 3.1 Flash is free on every plan including Go.
   assert.equal(KNOWN_PLANS['inclusionai/ling-3.1-flash:free'], 'go')
   assert.equal(planLabel('inclusionai/ling-3.1-flash:free'), 'Go')
@@ -6018,7 +6031,7 @@ test('CLI version and API base constants are stable', () => {
   // record — what each upstream version added and what was re-verified unchanged — lives
   // in CHANGELOG.md (whose newest published entry may lag the pinned constant); this
   // assertion pins the constant only.
-  assert.equal(COMMAND_CODE_CLI_VERSION, '1.79.2')
+  assert.equal(COMMAND_CODE_CLI_VERSION, '1.81.0')
   assert.equal(DEFAULT_API_BASE, 'https://api.commandcode.ai')
 })
 

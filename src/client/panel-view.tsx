@@ -30,6 +30,9 @@ import type { PanelKey } from './panel-copy.ts'
 // SlotMap merge for `main` / `sidebar.footer.action` (load-bearing: the slots
 // this file's components register into are typed only by that augmentation).
 import './panel-slots.ts'
+import { AnalyticsView } from './analytics-view.tsx'
+import type { AnalyticsState } from './analytics.ts'
+import type { AnalyticsQuery } from '../analytics-wire.ts'
 
 /**
  * Owner share of the sidebar-foot action hole: the shell renders the foot area
@@ -59,6 +62,8 @@ export interface PanelInjected {
   hooks: {
     commandCodeUsage: SnapshotStore<UsagePageState>
     commandCodeSettings: SnapshotStore<SettingsPageState>
+    commandCodeAnalytics?: SnapshotStore<AnalyticsState>
+    commandCodePanelMode?: SnapshotStore<'quota' | 'analysis'>
   }
   /** Fetch the report now (the dashboard's Refresh action). */
   refresh(): void
@@ -71,6 +76,8 @@ export interface PanelInjected {
   startAutoRefresh(): () => void
   /** Select this panel in the center column (`ctx.layout.selectPanel`). */
   open(): void
+  refreshAnalytics?(query?: AnalyticsQuery): void
+  selectPanelMode?(mode: 'quota' | 'analysis'): void
 }
 
 /**
@@ -83,6 +90,10 @@ export interface PanelInjected {
  * quota, so the selector is deliberately the whole snapshot.
  */
 export interface PanelComponentProps {
+  useCommandCodeAnalytics?<T>(selector: (state: AnalyticsState) => T): T
+  useCommandCodePanelMode?<T>(selector: (state: 'quota' | 'analysis') => T): T
+  refreshAnalytics?(query?: AnalyticsQuery): void
+  selectPanelMode?(mode: 'quota' | 'analysis'): void
   useCommandCodeUsage<T>(selector: (state: UsagePageState) => T): T
   useCommandCodeSettings<T>(selector: (state: SettingsPageState) => T): T
   /**
@@ -308,11 +319,15 @@ function AccountCard({ account, view }: { account: PanelAccountView; view: Panel
  */
 export function CommandCodePanel(props: PanelComponentProps) {
   const view = usePanelView(props)
+  const [fallbackMode, setFallbackMode] = useState<'quota' | 'analysis'>('quota')
+  const mode = props.useCommandCodePanelMode?.(s => s) ?? fallbackMode
+  const analyticsBusy = props.useCommandCodeAnalytics?.(s => s.status === 'loading') ?? false
+  const selectMode = (next: 'quota' | 'analysis') => { setFallbackMode(next); props.selectPanelMode?.(next) }
   const text = (key: PanelKey): string => view.text[key] ?? key
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
 
   const startAutoRefresh = props.startAutoRefresh
-  useEffect(() => startAutoRefresh(), [startAutoRefresh])
+  useEffect(() => mode === 'quota' ? startAutoRefresh() : undefined, [startAutoRefresh, mode])
 
   const accounts = view.accounts
   const selected = accounts.find((account) => account.id === selectedId)
@@ -321,21 +336,21 @@ export function CommandCodePanel(props: PanelComponentProps) {
 
   return (
     <div className="ccp-main" role="region" aria-label={text('nav')}>
-      <div className="ccp-mainInner">
+      <div className={`ccp-mainInner${mode === 'analysis' ? ' ccp-mainInnerAnalysis' : ''}`}>
         <header className="ccp-header">
           <div className="ccp-headerText">
-            <h2 className="ccp-title">{text('nav')}</h2>
-            <p className="ccp-subtitle">{text('subtitle')}</p>
+            <h2 className="ccp-title">{mode === 'analysis' ? `Command Code · ${text('analyticsNav')}` : text('nav')}</h2>
+            {mode === 'quota' ? <p className="ccp-subtitle">{text('subtitle')}</p> : null}
           </div>
           <span className="ccp-spacer" />
-          {view.updatedAt !== '' ? <span className="ccp-meta">{text('updated')} {view.updatedAt}</span> : null}
+          {mode === 'quota' && view.updatedAt !== '' ? <span className="ccp-meta">{text('updated')} {view.updatedAt}</span> : null}
           <Button
             variant="ghost"
             size="sm"
-            disabled={view.loading}
-            onClick={() => props.refresh()}
+            disabled={mode === 'quota' ? view.loading : analyticsBusy}
+            onClick={() => mode === 'quota' ? props.refresh() : props.refreshAnalytics?.()}
           >
-            {view.loading ? text('refreshing') : text('refresh')}
+            {mode === 'quota' && view.loading ? text('refreshing') : text('refresh')}
           </Button>
           {/* The dashboard REPLACES the conversation in the center column and
               this panel is the only surface that selects it, so without an exit
@@ -350,9 +365,15 @@ export function CommandCodePanel(props: PanelComponentProps) {
             title={text('closeHint')}
             onClick={() => props.close()}
           >
-            <span aria-hidden="true">×</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
           </Button>
         </header>
+
+        <nav className="ccp-tabs" aria-label={text('nav')}>
+          <button className={mode === 'quota' ? 'ccp-tab ccp-tabActive' : 'ccp-tab'} type="button" aria-pressed={mode === 'quota'} onClick={() => selectMode('quota')}>{text('quotaNav')}</button>
+          <button className={mode === 'analysis' ? 'ccp-tab ccp-tabActive' : 'ccp-tab'} type="button" aria-pressed={mode === 'analysis'} onClick={() => selectMode('analysis')}>{text('analyticsNav')}</button>
+        </nav>
+        {mode === 'analysis' ? props.useCommandCodeAnalytics && props.refreshAnalytics ? <AnalyticsView useCommandCodeAnalytics={props.useCommandCodeAnalytics} refreshAnalytics={props.refreshAnalytics} text={text} /> : <p className="ccp-hint">{text('analysisUnavailable')}</p> : <>
 
         {view.noKey ? (
           <div className="ccp-notice">
@@ -397,6 +418,7 @@ export function CommandCodePanel(props: PanelComponentProps) {
         {selected !== undefined ? <AccountCard account={selected} view={view} /> : null}
 
         {view.partial !== undefined ? <p className="ccp-hint">{text(view.partial)}</p> : null}
+        </>}
       </div>
     </div>
   )

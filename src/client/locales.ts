@@ -14,6 +14,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Dictionary keys of the Command Code settings page. */
 export type SettingsCommandCodeKey =
+  | 'openAnalytics'
   | 'nav'
   | 'title'
   | 'intro'
@@ -188,6 +189,7 @@ export type SettingsCommandCodeKey =
   | 'integrationsTitle'
 
 export const zh: Record<SettingsCommandCodeKey, string> = {
+  openAnalytics: '查看模型用量、成本与性能分析',
   nav: 'Command Code',
   title: 'Command Code',
   intro: '账户操作立即生效；其余设置修改后点击底部「保存」。API 密钥仅保存在本机凭据服务中，不会回显。',
@@ -366,6 +368,7 @@ export const zh: Record<SettingsCommandCodeKey, string> = {
 }
 
 export const en: Record<SettingsCommandCodeKey, string> = {
+  openAnalytics: 'View model usage, cost and performance',
   nav: 'Command Code',
   title: 'Command Code',
   intro: 'Account actions apply immediately; other settings are written by Save at the bottom. The API key stays in the local credential service and is never echoed.',

@@ -676,6 +676,80 @@ async function checkEnrollmentStream(staged, engineModules) {
   finally { releaseWrite(); await ctx.fiber.dispose() }
 }
 
+/** 真实历史服务读取关闭会话和分支，真实 Gateway 校验查询及纯数字响应。 */
+async function checkAnalyticsHistory(staged, engineModules) {
+  if (staged === undefined) return
+  const require = createRequire(join(dirname(engineModules), 'analytics-probe.cjs'))
+  const load = async name => import(pathToFileURL(require.resolve(name)).href)
+  const [{ Context, Service }, { default: SessionStore }, { default: SessionQuery }, { TypertRegistry }, { TypertGatewayService }, plugin] = await Promise.all([
+    load(`${SCOPE}/cordis`), load(`${SCOPE}/dsh-session`), load(`${SCOPE}/dsh-session-query`), load(`${SCOPE}/dsh-typert-registry`), load(`${SCOPE}/dsh-api-gateway`),
+    import(pathToFileURL(join(staged, 'lib', 'index.js')).href),
+  ])
+  const ctx = new Context(), savedFetch = globalThis.fetch, stored = new Map()
+  globalThis.fetch = async () => { throw new Error('合成统计检查不访问网络') }
+  class ProbeLlm extends Service {
+    constructor(c) { super(c, 'llm') }
+    registerConfigurableProviders() {}
+    registerAdapter() {}
+  }
+  class ReadStorage extends Service {
+    identity = Symbol('analytics-storage')
+    constructor(c) { super(c, 'sessionPersistence') }
+    async list() { return [...stored.values()].map(s => ({ header: s.session, revision: 'fixed' })) }
+    async stat(id) { const s = stored.get(id); return s ? { header: s.session, revision: 'fixed' } : undefined }
+    async open(id, access) {
+      assert.equal(access, 'read')
+      const s = stored.get(id)
+      assert.ok(s)
+      return { id, access, header: s.session, inheritedEventCount: s.inheritedEventCount,
+        async read(offset = 0, length = s.events.length) { return { eventState: 'detached', events: structuredClone(s.events.slice(offset, offset + length)) } },
+        async close() {},
+      }
+    }
+  }
+  try {
+    new ProbeLlm(ctx)
+    new ReadStorage(ctx)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionQuery)
+    await ctx.plugin(TypertRegistry)
+    await ctx.plugin(TypertGatewayService, {})
+    await ctx.plugin({ inject: plugin.inject, apply(c) { plugin.apply(c, { apiKeyEnv: 'ANALYTICS_PROBE' }) } })
+    const query = ctx.get('sessionQuery'), gateway = ctx.get('typertGateway')
+    const appendAttempt = (s, turn, tokens) => {
+      s.append('turn/start', { turn })
+      s.append('step/start', { turn, step: 1 })
+      s.append('request/header', { header: { config: { provider: 'commandcode', model: 'gpt-5.6-luna' } }, reason: turn === 1 ? 'initial' : 'resume' })
+      s.append('assistant/attempt', { turn, step: 1, stream: [{ type: 'chunk', time: Date.now(), chunk: { type: 'usage', usage: { inputTokens: tokens, outputTokens: 0 } } }] })
+      s.append('step/end', { turn, step: 1 })
+      s.append('turn/end', { turn, reason: { kind: 'error', error: { code: 'UNKNOWN', message: '合成错误' } } })
+    }
+    const parent = ctx.sessions.prepare('analytics-parent'), detach = ctx.sessions.enter(parent)
+    appendAttempt(parent, 1, 100)
+    const original = await query.readSession(parent.id)
+    stored.set(parent.id, original)
+    detach()
+    const child = ctx.sessions.prepare('analytics-child', { seed: original.events, inheritedEventCount: original.events.length, meta: { isSeeded: true, parentSession: parent.id } })
+    const detachChild = ctx.sessions.enter(child)
+    appendAttempt(child, 2, 200)
+    stored.set(child.id, await query.readSession(child.id))
+    detachChild()
+    const result = await gateway.invoke({ namespace: 'commandcode', method: 'analytics', args: { query: { mode: 'recent', limit: 20 } } })
+    assert.equal(result.status, 'ready')
+    assert.equal(result.scannedSessions, 2)
+    assert.equal(result.unreadableSessions, 0)
+    assert.equal(result.totals.sessions, 2)
+    assert.equal(result.totals.requests, 2)
+    assert.equal(result.totals.failed, 2)
+    assert.equal(result.totals.tokens.uncachedInputTokens, 300)
+    assert.ok(Array.isArray(result.scenarios))
+    assert.equal(JSON.stringify(result).includes('analytics-parent'), false)
+    await assert.rejects(gateway.invoke({ namespace: 'commandcode', method: 'analytics', args: { query: { mode: 'recent', limit: 101 } } }))
+    process.stdout.write('真实历史服务与 Gateway 已验证关闭会话、分支去重、计价和严格查询，无账号网络请求\n')
+  } catch (error) { fail(`模型分析历史契约：${error.message}`) }
+  finally { globalThis.fetch = savedFetch; await ctx.fiber.dispose() }
+}
+
 /** 真实宿主负责把适配器异常转为唯一的失败结束；不是在测试里自行模拟这层转换。 */
 async function checkStreamSettlement(staged, engineModules) {
   if (staged === undefined) return
@@ -916,6 +990,7 @@ async function verify(options) {
     await checkVolatileConfig(staged)
     await checkToolHistory(staged, engine.modules)
     await checkEnrollmentStream(staged, engine.modules)
+    await checkAnalyticsHistory(staged, engine.modules)
     await checkStreamSettlement(staged, engine.modules)
     await checkGatewayRequestFacts(staged, engine.modules)
     const policy = await checkImagePolicy(engine.modules)

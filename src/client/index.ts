@@ -2,7 +2,7 @@
  * Browser half of the dsh-commandcode-provider bundle: the "Command Code"
  * settings page (`settings.section`, id `commandcode`), the Models-page
  * provider card (`settings.models.provider-card`, key `llm-commandcode`, see
- * `./card.tsx`), the plans & quota panel's `main` cell + gated
+ * `./card.tsx`), the quota/model-analysis panel's `main` cell + gated
  * `sidebar.footer.action` card, and the composer
  * `conversation.composer.dock` cost entry.
  *
@@ -48,6 +48,9 @@ import { PANEL_CSS, PANEL_CSS_ID } from './panel-styles.ts'
 import type {} from './session-cost-slots.ts'
 import { zh, en } from './locales.ts'
 import { PANEL_COPY_EN, PANEL_COPY_ZH, PANEL_LOCALE_NS } from './panel-copy.ts'
+import { ANALYTICS_REMOTE_CONTRIBUTION } from '../analytics-wire.ts'
+import { AnalyticsController } from './analytics.ts'
+import type { AnalyticsQuery } from '../analytics-wire.ts'
 
 
 
@@ -218,12 +221,14 @@ function applyClientSurfaces(
   // that temporal dead zone THROWS, which `?.` would not save.
   let pricesController: CommandCodePricesController | undefined
   let refreshUsage: (() => void) | undefined
+  let analyticsController: AnalyticsController | undefined
   const contribution: TypertRemoteContribution = {
     package: USAGE_REMOTE_CONTRIBUTION.package,
     descriptors: [
       ...USAGE_REMOTE_CONTRIBUTION.descriptors,
       ...MODELS_REMOTE_CONTRIBUTION.descriptors,
       ...PRICES_REMOTE_CONTRIBUTION.descriptors,
+      ...ANALYTICS_REMOTE_CONTRIBUTION.descriptors,
       ...LOGIN_REMOTE_CONTRIBUTION.descriptors,
       ...ENROLLMENT_REMOTE_CONTRIBUTION.descriptors,
     ],
@@ -245,6 +250,7 @@ function applyClientSurfaces(
         // exist yet).
         controller.refreshCatalog()
         pricesController?.reload()
+        analyticsController?.reload()
         // ...and the usage report. A surface can (and on a boot with the quota
         // card on, always does) ask for it BEFORE this mount lands: the answer
         // then is the synthetic "remote is not mounted" failure, which the
@@ -254,6 +260,7 @@ function applyClientSurfaces(
         refreshUsage?.()
         namespaceCtx.effect(() => () => {
           usageNamespace = undefined
+          analyticsController?.reload()
         }, 'dsh-commandcode-provider: usage namespace')
       })
     }, (error: unknown) => {
@@ -310,6 +317,21 @@ function applyClientSurfaces(
   ctx.effect(() => () => pricesController?.dispose(), 'dsh-commandcode-provider: price table')
   const pricesStore = createSnapshotStore<SessionCostPricesState>(pricesController.state())
   pricesController.subscribe(() => pricesStore.set(pricesController.state()))
+
+  analyticsController = new AnalyticsController({ analytics: async query => {
+    const namespace = usageNamespace
+    if (typeof namespace?.analytics !== 'function') return { ok: false, error: { message: '宿主不支持模型分析，请更新插件' } }
+    return namespace.analytics(query)
+  } })
+  const analyticsStore = createSnapshotStore(analyticsController.state())
+  analyticsController.subscribe(() => analyticsStore.set(analyticsController!.state()))
+  ctx.effect(() => () => analyticsController?.dispose(), 'commandcode analytics controller')
+  const panelMode = createSnapshotStore<'quota' | 'analysis'>('quota')
+  const openAnalytics = () => {
+    panelMode.set('analysis')
+    const layout = ctx.get('layout') as LayoutSelectionSeam | undefined
+    layout?.selectPanel(PANEL_ID)
+  }
 
   // The login panel: same namespace, three endpoints. The key NEVER crosses to
   // the browser — the Host validates and stores it through the credentials
@@ -370,6 +392,7 @@ function applyClientSurfaces(
     discard: () => controller.discard(),
     refreshCredentials: () => void controller.refreshCredentials(),
     refreshUsage: () => void usageController.refresh(),
+    ...(typeof (ctx.get('layout') as LayoutSelectionSeam | undefined)?.selectPanel === 'function' ? { openAnalytics } : {}),
     beginLogin: (targetRef?: string) => void loginController.begin(targetRef),
     cancelLogin: () => void loginController.cancel(),
     // Account operations commit immediately. The ones that change which keys
@@ -471,7 +494,9 @@ function applyClientSurfaces(
   //     the entry with no visible error, so a failure that leaves nothing on
   //     screen must at least be loud in the console.
   const panelFace = (): PanelInjected => ({
-    hooks: { commandCodeUsage: usageStore, commandCodeSettings: store },
+    hooks: { commandCodeUsage: usageStore, commandCodeSettings: store, commandCodeAnalytics: analyticsStore, commandCodePanelMode: panelMode },
+    selectPanelMode: (mode) => panelMode.set(mode),
+    refreshAnalytics: (query?: AnalyticsQuery) => analyticsController?.refresh(query),
     refresh: () => { pricesController?.ensure(); void usageController.refresh() },
     // The Host resolves every credential source, including CLI auth and
     // literals. A browser credential-reference lookup cannot determine
@@ -484,6 +509,7 @@ function applyClientSurfaces(
     // by the time this runs the method exists; the guard stays as the last line
     // of defence against a layout that renames it.
     open: () => {
+      panelMode.set('quota')
       const layout = ctx.get('layout') as LayoutSelectionSeam | undefined
       layout?.selectPanel(PANEL_ID)
     },

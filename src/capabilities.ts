@@ -4,7 +4,7 @@
  * subscription-plan labels, deals, and hourly (peak/off-peak) pricing.
  *
  * Everything here is synced from official sources — the command-code CLI
- * bundle's model table (`dist/cli.mjs`, re-verified at command-code@1.79.2) and
+ * bundle's model table (`dist/cli.mjs`, re-verified at command-code@1.81.0) and
  * the official plan/pricing/model docs; see the dsh-commandcode-upstream skill
  * for the extraction procedures. Keeping the snapshot in its own module
  * confines those frequent sync diffs here: src/adapter.ts holds only the stable
@@ -19,7 +19,7 @@ import { PLAN_LABELS, PLAN_ORDER } from './plan-tiers.ts'
 export { PLAN_LABELS, PLAN_ORDER } from './plan-tiers.ts'
 
 export const KNOWN_EFFORTS: Readonly<Record<string, readonly string[]>> = {
-  // Re-verified against the authoritative command-code@1.79.2 bundled model
+  // Re-verified against the authoritative command-code@1.81.0 bundled model
   // table (dist/cli.mjs, the provider effort map): exactly these models carry
   // selectable efforts. Models marked 'reasoning:!0' without efforts
   // (e.g. Tencent Hy3, GLM-5/5.1/5.2-Fast)
@@ -104,6 +104,10 @@ export const KNOWN_EFFORTS: Readonly<Record<string, readonly string[]>> = {
   'meta/muse-spark-1.2-contributor': ['low', 'medium', 'high', 'xhigh'],
   'meta/muse-spark-1.3': ['low', 'medium', 'high', 'xhigh', 'max'],
   'meta/muse-spark-1.3-contributor': ['low', 'medium', 'high', 'xhigh'],
+  // command-code@1.80.0 ("Add Muse Wonder"): the Muse family's newest member and
+  // the only registry addition in the 1.79.2 -> 1.81.0 train. It carries the
+  // same four-level set as Muse Spark 1.1/1.2 (no `max`).
+  'meta/muse-wonder-1.0': ['low', 'medium', 'high', 'xhigh'],
   // command-code@1.49.0; the full five-level set.
   'gpt-6-astra': ['low', 'medium', 'high', 'xhigh', 'max'],
   // command-code@1.64.0: Claude Opus 5.5 and the GPT-6 Sol / Luna pair, the only
@@ -233,6 +237,10 @@ export const KNOWN_IMAGE_MODELS: ReadonlySet<string> = new Set([
   'meta/muse-spark-1.2-contributor',
   'meta/muse-spark-1.3',
   'meta/muse-spark-1.3-contributor',
+  // command-code@1.80.0; Vision per the official registry and the CLI's
+  // inputModalities:["text","image","file"] — the only model in this catalog
+  // that also declares the `file` modality.
+  'meta/muse-wonder-1.0',
   // command-code@1.75.0; Vision per the official registry and the CLI's
   // inputModalities:["text","image"].
   'mistral/mistral-large-4',
@@ -267,7 +275,7 @@ export const KNOWN_IMAGE_MODELS: ReadonlySet<string> = new Set([
 
 /**
  * Models WITHOUT a zero-data-retention upstream, per the official CLI's own
- * registry (`command-code@1.79.2` `dist/cli.mjs`): `modelSupportsZdr(id)` is
+ * registry (`command-code@1.81.0` `dist/cli.mjs`): `modelSupportsZdr(id)` is
  * exactly `!nonZdrSet.has(canonicalize(id))`, and `knownModelSupportsZdr`
  * carries the same membership in the sibling route table — the UNION of both
  * is this set. Reading only the sibling route table dropped
@@ -324,6 +332,10 @@ export const KNOWN_NON_ZDR_MODELS: ReadonlySet<string> = new Set([
   'meta/muse-spark-1.2-contributor',
   'meta/muse-spark-1.3',
   'meta/muse-spark-1.3-contributor',
+  // command-code@1.80.0. The CLI's exclusion set names it, so a ZDR request for
+  // it is refused; the pricing page carries no ZDR note for this row, so the
+  // artifact is the evidence. 22 members as of 1.81.0.
+  'meta/muse-wonder-1.0',
   'minimax/minimax-m3-free',
   'poolside/laguna-s-2.1-free',
   'sakana/fugu-ultra',
@@ -464,18 +476,22 @@ export function requiresMessagesEndpoint(modelId: string): boolean {
  * **Generated — do not hand-edit.** `scripts/sync-output-limits.mjs` rewrites
  * this literal from models.dev; run it after a catalog sync, and use its
  * `--check` in CI. Command Code resells these models through their VENDOR's own
- * API, so the vendor's published ceiling is the value recorded: 76 of the 86
- * catalog ids as of 2026-09-30. Each row carries a comment naming the entry it
+ * API, so the vendor's published ceiling is the value recorded: 76 of the 88
+ * catalog ids as of 2026-10-13. Each row carries a comment naming the entry it
  * came from.
  *
- * Two of those 76 rest on more than a vendor lookup. `gpt-6.1-sol` (128000) comes
- * from OpenAI's own row and is corroborated by every other provider carrying it.
- * `inclusionai/ling-3.1-flash:free` (32768) is hand-recorded in the script's
- * `MANUAL_CEILINGS`: models.dev has no `ling-3.1` entry yet, so it takes the Ling
- * family's uniform ceiling. Both are still correctable — a stricter gateway costs
- * one refused request, and `streamRequest()` remembers what the endpoint said.
+ * Two of those 76 rest on more than a vendor lookup, both hand-recorded in the
+ * script's `MANUAL_CEILINGS`. `gpt-6.1-sol` (128000) comes from OpenAI's own row
+ * and is corroborated by every other provider carrying it.
+ * `inclusionai/ling-3.1-flash:free` (32768) has no models.dev row at all, so it
+ * takes the Ling family's uniform ceiling; `inclusionai/ling-3.0-flash-sante:free`
+ * (32768) lost both its vendor row and its unanimous third-party vote (vercel
+ * files 32000), and is pinned so a regeneration cannot drop a live model's
+ * ceiling back to the default. All are still correctable — a stricter gateway
+ * costs one refused request, and `streamRequest()` remembers what the endpoint
+ * said.
  *
- * The 10 unlisted models are ones no vendor publishes and the aggregators
+ * The 12 unlisted models are ones no vendor publishes and the aggregators
  * disagree about. They are NOT a gap: a refusal states the ceiling in full, and
  * `streamRequest()` reads it off, retries once and remembers it for the model
  * (issue #71). A vendor figure the gateway turns out to be stricter than costs
@@ -494,6 +510,8 @@ export const MODEL_OUTPUT_TOKEN_LIMITS: ReadonlyMap<string, number> = new Map([
   ['claude-fable-5-1', 128000],
   // anthropic
   ['claude-haiku-4-5-20251001', 64000],
+  // anthropic
+  ['claude-haiku-5-5', 128000],
   // anthropic
   ['claude-opus-4-7', 128000],
   // anthropic
@@ -548,7 +566,7 @@ export const MODEL_OUTPUT_TOKEN_LIMITS: ReadonlyMap<string, number> = new Map([
   ['gpt-6-sol', 128000],
   // openai
   ['gpt-6.1-sol', 128000],
-  // 2 provider(s), unanimous
+  // manual: no vendor row and no longer unanimous (vercel 32000); Ling family ceiling 32768, see MANUAL_CEILINGS
   ['inclusionai/ling-3.0-flash-sante:free', 32768],
   // manual: no models.dev row; Ling family ceiling 32768, see MANUAL_CEILINGS
   ['inclusionai/ling-3.1-flash:free', 32768],
@@ -564,6 +582,8 @@ export const MODEL_OUTPUT_TOKEN_LIMITS: ReadonlyMap<string, number> = new Map([
   ['meta/muse-spark-1.3', 131072],
   // meta
   ['meta/muse-spark-1.3-contributor', 131072],
+  // meta
+  ['meta/muse-wonder-1.0', 131072],
   // minimax
   ['MiniMaxAI/MiniMax-M2.5', 131072],
   // minimax
@@ -600,14 +620,6 @@ export const MODEL_OUTPUT_TOKEN_LIMITS: ReadonlyMap<string, number> = new Map([
   ['Qwen/Qwen3.8-Omni-Flash', 131072],
   // sakana
   ['sakana/fugu-ultra', 1000000],
-  // 1 provider(s), unanimous
-  // `stealth/pixel-canary` stays in this models.dev-derived table even though
-  // Command Code retired the model on 2026-10-01: this file is generated from
-  // models.dev (scripts/sync-output-limits.mjs), which still lists it, so
-  // dropping the row by hand would only diverge from the next regeneration.
-  ['stealth/pixel-canary', 131072],
-  // 3 provider(s), unanimous
-  ['stealth/space-bunny-alpha', 524288],
   // stepfun
   ['stepfun/Step-3.5-Flash', 256000],
   // stepfun
@@ -668,11 +680,12 @@ export const DEFAULT_MESSAGES_MAX_TOKENS = 64_000
  * `/docs/plans/max` and `/docs/resources/pricing-limits`). Each plan's model
  * list is a superset of the one below it: Go ⊂ GOAT ⊂ Pro ⊂ Provider/Max.
  * Models absent from every plan list (Claude Opus/Fable, Fugu Ultra) are
- * Provider-tier. Re-verified at command-code@1.79.2 (2026-10-09): 87 catalog
- * ids at 54/64/78/86 cumulative, a strict superset chain. Mistral Large 4
+ * Provider-tier. Re-verified at command-code@1.81.0 (2026-10-13): 88 catalog
+ * ids at 54/64/78/86/88 cumulative, a strict superset chain. Mistral Large 4
  * (1.75.0) was the only addition at the 1.77.0 check; the 1.78.0/1.79.0 pair
  * added Claude Haiku 5.5 at Pro and the free Glyph Cluster preview at Go.
- * 1.79.2 lowers Haiku 5.5's minimum plan to GOAT; every other tier is unchanged.
+ * 1.79.2 lowers Haiku 5.5's minimum plan to GOAT; 1.80.0 adds Muse Wonder at
+ * Max and nothing else moves. Every other tier is unchanged.
  * The only removals since 1.49.0 are the two retired stealth previews (Pixel
  * Canary at 1.73.1, Space Bunny Alpha at 1.74.3). Per-entry tags below name the
  * releases that added or moved each row.
@@ -833,7 +846,7 @@ export const KNOWN_PLANS: Readonly<Record<string, string>> = {
   // command-code@1.49.0; on Max.
   'gpt-6-astra': 'provider',
   'sakana/fugu-ultra': 'provider',
-  // --- Max (1) ---
+  // --- Max (2) ---
   // command-code@1.71.0; the FIRST Max-only model in this catalog and the only
   // one whose minimum plan is `max`: the embedded availability sets every lower
   // tier false (individual-go / go-v1 / goat / pro / pro-v1 / provider all
@@ -841,6 +854,10 @@ export const KNOWN_PLANS: Readonly<Record<string, string>> = {
   // `PLAN_ORDER` already carries `max` above `provider`, so the picker sorts it
   // last without a change there (plan-tiers.ts).
   'gpt-6.1-sol': 'max',
+  // command-code@1.80.0; the same Max-and-above availability as `gpt-6.1-sol`
+  // (every lower tier false, only individual-max / individual-ultra /
+  // teams-pro true) and the note "Available on Max and above."
+  'meta/muse-wonder-1.0': 'max',
 }
 
 /**

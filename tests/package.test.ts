@@ -74,6 +74,15 @@ test('per-release DSH compatibility lists only verified releases', () => {
   }
 })
 
+test('DSH compatibility keeps one release candidate and one alpha release', () => {
+  // 维护策略只保留两条发布通道；同通道升级须替换旧版，避免验证矩阵不断累加。
+  // 最新版本由升级审计核对官方发布事实；离线测试只约束通道与数量，不请求网络。
+  const declared = Object.keys(pkg.dsh?.compatibility?.dshReleases ?? {})
+  assert.equal(declared.length, 2, 'keep exactly two declared engine releases')
+  assert.equal(declared.filter((version) => /^\d+\.\d+\.\d+-rc\.\d+$/.test(version)).length, 1)
+  assert.equal(declared.filter((version) => /^\d+\.\d+\.\d+-alpha\.\d+$/.test(version)).length, 1)
+})
+
 test('the manifest declares the same engine range it supports', () => {
   // `compatibility.dsh` and `engines.dsh` are declarative: dsh itself reads
   // neither, but a catalog that finds no explicit engine range falls back to a

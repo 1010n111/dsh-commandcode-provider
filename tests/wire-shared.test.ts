@@ -21,6 +21,7 @@ import {
 } from '../src/usage-wire.ts'
 import { LOGIN_HOST_CONTRIBUTION, LOGIN_REMOTE_CONTRIBUTION } from '../src/login-wire.ts'
 import { ENROLLMENT_REMOTE_CONTRIBUTION } from '../src/enrollment-wire.ts'
+import { ANALYTICS_REMOTE_CONTRIBUTION } from '../src/analytics-wire.ts'
 import type { InvocationDescriptor, TypertSchema } from '@deepseek-ai/dsh-typert-protocol'
 
 /** The shared shape the engine's validators are handed. */
@@ -54,11 +55,12 @@ const SHIPPED_DESCRIPTORS: readonly InvocationDescriptor[] = [
   ...LOGIN_HOST_CONTRIBUTION.invocations,
   ...LOGIN_REMOTE_CONTRIBUTION.descriptors,
   ...ENROLLMENT_REMOTE_CONTRIBUTION.descriptors,
+  ...ANALYTICS_REMOTE_CONTRIBUTION.descriptors,
 ]
 
 test('every shipped descriptor registers on the supported engine', () => {
   const ids = new Set(SHIPPED_DESCRIPTORS.map(descriptor => descriptor.id))
-  assert.equal(ids.size, 13, `expected the thirteen commandcode endpoints, saw ${[...ids].join(', ')}`)
+  assert.equal(ids.size, 14, `expected fourteen commandcode endpoints, saw ${[...ids].join(', ')}`)
   for (const [index, descriptor] of SHIPPED_DESCRIPTORS.entries()) {
     const subject = `${descriptor.id} result`
     assert.equal(descriptor.result.mode, 'strict')

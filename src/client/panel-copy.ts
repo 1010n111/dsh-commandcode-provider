@@ -14,6 +14,8 @@
  * @module dsh-commandcode-provider/client/panel-copy
  */
 
+import { ANALYTICS_COPY_ZH, ANALYTICS_COPY_EN, type AnalyticsKey } from './analytics-copy.ts'
+
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** Copy of the plans & quota panel (footer card + dashboard). */
@@ -27,6 +29,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
  * compile error at the register site.
  */
 export type PanelKey =
+  | AnalyticsKey
   /** Footer card title and panel heading. */
   | 'nav'
   /** Panel sub-heading under the title. */
@@ -102,6 +105,7 @@ export type PanelTranslator = (key: PanelKey) => string
 
 /** The panel's Simplified Chinese string table (the key-set source of truth). */
 export const PANEL_COPY_ZH: Record<PanelKey, string> = {
+  ...ANALYTICS_COPY_ZH,
   nav: 'Command Code',
   subtitle: '套餐、额度与配额窗口',
   refresh: '刷新',
@@ -157,6 +161,7 @@ export const PANEL_COPY_ZH: Record<PanelKey, string> = {
 
 /** The panel's English string table (must mirror {@link PANEL_COPY_ZH}). */
 export const PANEL_COPY_EN: Record<PanelKey, string> = {
+  ...ANALYTICS_COPY_EN,
   nav: 'Command Code',
   subtitle: 'Plans, credits and quota windows',
   refresh: 'Refresh',

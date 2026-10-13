@@ -12,6 +12,8 @@ An unofficial [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-har
 
 ## Repository layout
 
+模型历史分析新增 `src/analytics.ts`（逐请求折叠与价格试算）、`src/analytics-history.ts`（可选宿主历史读取）、`src/analytics-wire.ts`（严格远端）、`src/client/analytics.ts`（查询生命周期）和 `src/client/analytics-view.tsx`（筛选与比较表）。统计口径见 [实现说明](../模型成本与性能分析.md)。
+
 ```
 src/adapter.ts        CommandCodeAdapter (LlmAdapter) — wire protocol (three
                       transports: the private CLI protocol, OpenAI Chat

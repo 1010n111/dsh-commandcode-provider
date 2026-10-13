@@ -2,6 +2,8 @@
 
 Task-specific reference moved from the former root `AGENTS.md`. All source and test paths are relative to the repository root. Consult the relevant source and tests before changing behavior.
 
+模型历史分析（问题 #79）：`src/analytics.ts` 按逐请求时间与上下文折叠，不使用已合并的会话费用桶；`src/analytics-history.ts` 可选绑定 `sessionQuery.listSessions/readSession`，包含关闭会话、排除分支继承用量，每次限 500 会话和 200000 事件。`src/analytics-wire.ts` 提供双方共享严格远端，浏览器只收到汇总数字与能力；设置页和既有面板均可打开，不依赖额度卡片开关、不轮询历史。试算固定原词元与时间，不能推断换模型后的缓存、输出或质量。成本按当前价，不是账单或积分；只有完整且全部计价的至少一天日期范围才折算 30 天成本。全部接口、文档盘点与验证边界见 [实现说明](../模型成本与性能分析.md)。
+
 - **账号报告来源**：一次报告固定入口捕获的连接、账号列表与固定账号，窗口探测与所有账号的用量请求使用同一网关。先完成账号池共享恢复，再读取健康标记，避免已恢复账号继续展示探测前的旧状态；不同网关的同一密钥不共享健康或探测节流。
 - **账号响应诊断（问题 #76）**：收到成功状态后分别读取正文、解析 JSON 和校验顶层对象；`failures` 详情区分读取超时／中断、解析失败与结构不符，整组失败仍沿用 `invalid-response`（响应不可用），不扩展严格远端枚举。诊断只保留白名单异常名称、错误码和内容类型／编码，不保存正文、原异常消息或任意响应头。响应头仅是线索，不能据此强制再次解压已解码的正文。设置页、用量面板和命令提示均不再把所有失败归因于代理或解压；真实问题根因仍待反馈者环境验证。见[问题 #76 修复说明](../issue-76-response-review.md)。
 

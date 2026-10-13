@@ -14,6 +14,8 @@
 import type { CommandCodeAccountsReport, CommandCodeCatalog, CommandCodePriceTable } from '../usage-wire.ts'
 import type { CommandCodeLoginStatus } from '../login-wire.ts'
 import type { EnrollmentRemote } from './enrollment.ts'
+import type { AnalyticsRemote } from './analytics.ts'
+import type { AnalyticsQuery, AnalyticsReport } from '../analytics-wire.ts'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { readableErrorText } from './error-text.ts'
 export { formatMoney, formatMoneyExact, formatTokensCompact, formatSuccessRate, windowRatio, formatResetAt } from '../display-format.ts'
@@ -30,9 +32,10 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'commandcode/report': () => Promise<RemoteResult<CommandCodeAccountsReport>>
     'commandcode/models': () => Promise<RemoteResult<CommandCodeCatalog>>
     'commandcode/prices': () => Promise<RemoteResult<CommandCodePriceTable>>
+    'commandcode/analytics': (query: AnalyticsQuery) => Promise<RemoteResult<AnalyticsReport>>
   }
   interface TypertRemoteNamespaceMap {
-    commandcode: Partial<EnrollmentRemote> & {
+    commandcode: Partial<EnrollmentRemote> & AnalyticsRemote & {
       report: () => Promise<RemoteResult<CommandCodeAccountsReport>>
       models: () => Promise<RemoteResult<CommandCodeCatalog>>
       /**

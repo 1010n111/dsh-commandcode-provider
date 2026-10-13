@@ -18,6 +18,7 @@
 
 - **插件包**：一条 `dsh plugin add` 命令安装到任意 dsh 配置，注册 `commandcode` provider 路由，带实时模型目录。
 - **专属设置页**：统一的账户列表（密钥、网页登录、实时额度、专用模型）、模型显示、隐私开关与连接参数。
+- **模型分析**：从设置页打开，按最近会话或日期查看历史词元、估算成本、响应速度与失败/重试，比较固定工作量在其他可见模型上的价格和客观能力。包含已关闭会话、去除分支继承用量，显示缺失数据和读取覆盖；完整时间范围可折算 30 天成本。不自动推荐、不评价任务质量。金额按当前价重算，不是账单；[统计口径与限制](docs/模型成本与性能分析.md)。
 - **终端界面同样可用**：同一次安装即可服务 [dsh-TUI](#终端界面dsh-tui) 配置，终端里有自己的 **`/settings` → Command Code** 页面来填 key 和调模型。
 - **Models 页快捷卡片**：**设置 → Models → Command Code** 卡片内直接显示 key 状态、粘贴输入框和登录按钮。
 - **浏览器内登录获取 key**：设置页一键发起官方授权（与 `cmd login` 同一流程），完成后密钥自动写入本机凭据服务，无需手动创建或粘贴；不可用时随时退回手动粘贴。
@@ -33,7 +34,7 @@
 
 ## 安装
 
-本版本**只支持 dsh 0.2.0-rc.2、dsh 0.2.1-alpha.1 与 dsh 0.2.1-alpha.2 这三个版本**：插件的 peer 范围就是这三个已验证版本的析取，兼容性记录里也只列它们。`0.2.0-rc.2` 正是 `npm i -g @deepseek-ai/dsh@latest` 与官方桌面端放出的版本，多数用户都在它上面；`0.2.1-alpha.2` 是上游 `alpha` 通道当前提供的版本，`0.2.1-alpha.1` 因为已经验证过而保留在范围内，钉在它上面的 profile 可以继续使用：
+本版本**只支持 dsh 0.2.0-rc.2（RC，候选发布版）与 dsh 0.2.1-alpha.2（alpha，早期测试版）**。维护策略为每条通道只保留官方最新且经过验证的一个版本；2026-10-11 核对时分别对应 npm 的 `latest` 与 `alpha` 发布标签。对等依赖范围和兼容记录只列这两个精确版本。使用 `0.2.1-alpha.1` 的配置需先升级引擎，再安装本构建：
 
 ```sh
 dsh plugin --profile web add @mars-sea/dsh-commandcode-provider@latest
@@ -62,7 +63,7 @@ dsh plugin --profile web add @mars-sea/dsh-commandcode-provider@0.11.15
 用与安装时相同的 tag 更新：
 
 ```sh
-dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@latest     # dsh 0.2.0-rc.2、0.2.1-alpha.1 或 0.2.1-alpha.2
+dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@latest     # dsh 0.2.0-rc.2 或 0.2.1-alpha.2
 dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@0.9.1      # 更早的 dsh（0.5.0 线，不再维护）
 ```
 
@@ -136,7 +137,7 @@ cmd login                               # 写入 ~/.commandcode/auth.json
         cwd: !!js process.cwd()
 ```
 
-**引擎版本要求。** 插件针对三个引擎维护：**dsh 0.2.0-rc.2**、**dsh 0.2.1-alpha.1** 与 **dsh 0.2.1-alpha.2**。它的 `@deepseek-ai/dsh-*` 对等依赖写成三者的析取 `0.2.0-rc.2 || 0.2.1-alpha.1 || 0.2.1-alpha.2`，`@deepseek-ai/cordis` 固定为 `~4.0.4 || ~4.0.5-alpha.1`、`@deepseek-ai/schemastery` 固定为 `~3.18.4 || ~3.18.5-alpha.1`（每个分支都与对应引擎同批发布），`dsh.compatibility.dshReleases` 也只记录这三个版本。这个析取写法是刻意的、且是承重的：它不像 `^` 或 `>=` 那样放行任何相邻的预发布版、候选发布或稳定补丁版，每个分支都是一个裸版本号，且发版前 `npm run test:engine` 会对**三个引擎各跑一遍**完整套件。DSH 本身会拒绝加载 `@deepseek-ai/dsh*` peer 不接纳当前引擎的插件——所以一个静默放行未验证邻居的范围，比没有范围更糟。在其它引擎上，设置页、消息封装或请求图片预算总有一处对不上——请改装支持你所用引擎的最后一个版本，而不是硬装这一个。
+**引擎版本要求。** 插件维护两个引擎：**dsh 0.2.0-rc.2** 与 **dsh 0.2.1-alpha.2**。`@deepseek-ai/dsh-*` 对等依赖为 `0.2.0-rc.2 || 0.2.1-alpha.2`；`@deepseek-ai/cordis` 与 `@deepseek-ai/schemastery` 仍使用随引擎配对的范围 `~4.0.4 || ~4.0.5-alpha.1` 与 `~3.18.4 || ~3.18.5-alpha.1`。兼容记录恰好包含两个版本，同通道升级验证后替换旧版，不累加已支持版本、不放行未验证的邻近版本。`npm run test:engine` 与 `npm run test:install` 均逐版本验证。旧引擎安装说明见[安装](#安装)。
 
 ## 用量面板
 
@@ -223,7 +224,7 @@ Command Code 可以让请求只经由「不留存提示词与回复、也不用�
 
 **默认关闭。** 在「隐私与安全」卡片里打开「零数据保留（ZDR）」（`zdr`），或写进 profile 配置。本插件的实现方式：
 
-- 开启后，**每次聊天请求**都会带上 ZDR 请求头。插件仍维护官方 CLI 的例外名单（`KNOWN_NON_ZDR_MODELS`，截至 2026-10-08 共 21 个模型，例如 `xai/grok-4.5`、`stealth/glyph-cluster:free`、`stepfun/Step-3.7-Flash`、`meta/muse-spark-1.3`）供查询。没有可用 ZDR 上游时，服务端返回 `422 cmd_zdr_no_providers`；插件不会去掉请求头重试。
+- 开启后，**每次聊天请求**都会带上 ZDR 请求头。插件仍维护官方 CLI 的例外名单（`KNOWN_NON_ZDR_MODELS`，截至 2026-10-13 共 22 个模型，例如 `xai/grok-4.5`、`stealth/glyph-cluster:free`、`stepfun/Step-3.7-Flash`、`meta/muse-wonder-1.0`）供查询。没有可用 ZDR 上游时，服务端返回 `422 cmd_zdr_no_providers`；插件不会去掉请求头重试。
 - 万一仍被拒绝（名单过期，或那一刻没有空闲的 ZDR 上游容量），错误信息会说明原因并给出关闭 ZDR 的办法，而不是抛出一个光秃秃的 HTTP 422。
 - **ZDR 通常更贵**：容量有限，按各上游实价透传计费，且每次请求落在哪个上游可能不同。会话费用读数仍按常规目录价估算；真实单价见 Command Code Studio 的用量页。
 - 各套餐均可使用；ZDR 请求按套餐的默认额度（而非提升额度）计量。

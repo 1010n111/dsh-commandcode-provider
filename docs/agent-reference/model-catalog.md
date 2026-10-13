@@ -19,16 +19,22 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
     themselves are NOT a reliable source since the 2026-09-30 reformat**: `/docs/plans/go|goat|pro` now emit
     a rendered `minPlanName` instead of an availability map, `/docs/plans/max` dropped its table entirely,
     and `/docs/plans/provider` became the Provider API reference. Strict superset chain; every catalog ID
-    covered exactly once (re-verified at command-code@1.79.2, 2026-10-09 — the public catalog serves 87
+    covered exactly once (re-verified at command-code@1.81.0, 2026-10-13 — the public catalog serves 88
     models: `stealth/pixel-canary` left it when 1.73.1 retired that stealth preview, `stealth/space-bunny-alpha`
-    followed when 1.74.3 hid it, `mistral/mistral-large-4` joined in 1.75.0, and the 1.78.0/1.79.0 pair added
-    `claude-haiku-5-5` on Pro and the free `stealth/glyph-cluster:free` on Go. The retired previews above are
+    followed when 1.74.3 hid it, `mistral/mistral-large-4` joined in 1.75.0, the 1.78.0/1.79.0 pair added
+    `claude-haiku-5-5` on Pro and the free `stealth/glyph-cluster:free` on Go, and 1.80.0 added
+    `meta/muse-wonder-1.0` on Max. The retired previews above are
     Pixel Canary and Space Bunny Alpha; Glyph Cluster remains active.
-    `gpt-6.1-sol` (1.71.0) is the first **`max`** member: every lower tier false, only
-    `individual-max`/`individual-ultra`/`teams-pro` true. `inclusionai/ling-3.1-flash:free` (1.70.0) is `go`.
+    `gpt-6.1-sol` (1.71.0) was the first **`max`** member: every lower tier false, only
+    `individual-max`/`individual-ultra`/`teams-pro` true; `meta/muse-wonder-1.0` (1.80.0) is the second.
+    `inclusionai/ling-3.1-flash:free` (1.70.0) is `go`.
     1.79.2 将 Haiku 5.5 的最低套餐从 Pro 下调至 GOAT，其他模型分层不变；累计可见数由
     54/63/78/86/87 变为 54/64/78/86/87，严格递增链仍成立。GOAT 套餐页明确列出 Haiku 5.5
     的 $20 月额度，Pro 页为 $30；公开目录没有新增或删除。
+    1.80.0（"Add Muse Wonder"）新增 `meta/muse-wonder-1.0`，最低套餐为 Max（"Available on Max and
+    above."，Go／GOAT／Pro／Provider 全部 false，仅 `individual-max`／`individual-ultra`／`teams-pro`
+    为 true）；累计可见数由 54/64/78/86/87 变为 54/64/78/86/88。1.80.0 → 1.81.0 未移动任何模型分层、
+    effort 档位或 ZDR 例外成员（1.81.0 的公开变更日志与包内 CHANGELOG 均未发布，结论来自产物级静态比对）。
     At command-code@1.77.0 (2026-10-07) the catalog served 85 and read 53/62/76/84/85, unchanged from
     the 1.74.1 check on 2026-10-03; at
     command-code@1.73.0 (2026-10-01) it served 86 and read 54/63/77/85/86.

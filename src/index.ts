@@ -26,6 +26,7 @@
  */
 
 import { installCostProjection } from './cost-projection.ts'
+import { createAnalyticsReader } from './analytics-history.ts'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -778,7 +779,7 @@ export function apply(ctx: Context, config: Config): void {
     login: (storeKey) => new CommandCodeLoginFlow({ apiBase: () => options().apiBase, storeKey }),
   })
   ctx.effect(() => () => enrollment.dispose(), 'dsh-commandcode-provider: account enrollment')
-  applyUsageRemote(ctx, { adapter, reports: usageReports, login: loginFlow, enrollment, listModels: catalogForEditors })
+  applyUsageRemote(ctx, { adapter, reports: usageReports, login: loginFlow, enrollment, listModels: catalogForEditors, analytics: createAnalyticsReader(ctx, adapter) })
 
   // Web search over the Command Code Provider API, exposed through the web
   // capability seam (`ctx.web`). Rides the optional `web` service: a child

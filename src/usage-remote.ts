@@ -1,6 +1,6 @@
 /**
  * Host half of the Command Code Remotes (`commandcode/report`,
- * `commandcode/models`, `commandcode/prices`, `commandcode/login*`).
+ * `commandcode/models`, `commandcode/prices`, `commandcode/analytics`, `commandcode/login*`).
  *
  * The settings page needs facts the browser cannot fetch for itself — it never
  * holds the API key — so this module exposes them through the Typert Gateway:
@@ -27,6 +27,7 @@ import { LOGIN_HOST_CONTRIBUTION } from './login-wire.ts'
 import type { CommandCodeLoginStatus } from './login-wire.ts'
 import { ENROLLMENT_DESCRIPTORS, type EnrollmentAction, type EnrollmentInput, type EnrollmentPage, type EnrollmentState } from './enrollment-wire.ts'
 import type { AccountEnrollmentManager } from './enrollment.ts'
+import { ANALYTICS_DESCRIPTOR, type AnalyticsQuery, type AnalyticsReport } from './analytics-wire.ts'
 
 /**
  * The browser-login face the usage service exposes (`commandcode/login*`).
@@ -70,6 +71,7 @@ export interface CommandCodeUsageDeps<C extends CommandCodeConnectionOptions = C
   /** The browser-login flow (wired by the plugin entry); see {@link LoginFlowFacade}. */
   login?: LoginFlowFacade
   enrollment?: AccountEnrollmentManager
+  analytics?: (query: AnalyticsQuery, signal?: AbortSignal) => Promise<AnalyticsReport>
 }
 
 /**
@@ -145,6 +147,11 @@ export class CommandCodeUsageService<C extends CommandCodeConnectionOptions = Co
    */
   async prices(): Promise<CommandCodePriceTable> {
     return (this.deps.prices ?? modelPriceTable)()
+  }
+
+  async analytics(query: AnalyticsQuery): Promise<AnalyticsReport> {
+    if (!this.deps.analytics) throw new Error('宿主不支持模型分析，请更新插件')
+    return this.deps.analytics(query, this.ctx.invocation?.signal)
   }
 
   /**
@@ -245,7 +252,7 @@ export function applyUsageRemote<C extends CommandCodeConnectionOptions>(
     // Client mount) 1:1.
     const unregister = registry.register({
       ...USAGE_HOST_CONTRIBUTION,
-      invocations: [...USAGE_HOST_CONTRIBUTION.invocations, MODELS_DESCRIPTOR, PRICES_DESCRIPTOR, ...LOGIN_HOST_CONTRIBUTION.invocations, ...ENROLLMENT_DESCRIPTORS],
+      invocations: [...USAGE_HOST_CONTRIBUTION.invocations, MODELS_DESCRIPTOR, PRICES_DESCRIPTOR, ANALYTICS_DESCRIPTOR, ...LOGIN_HOST_CONTRIBUTION.invocations, ...ENROLLMENT_DESCRIPTORS],
     })
     // The registry's own effect would outlive this fiber; withdraw the
     // contribution when the plugin unloads.
