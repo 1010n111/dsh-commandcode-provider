@@ -1,0 +1,140 @@
+name: npm 可信发布
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已推送的版本标签，例如 v0.13.1
+        required: true
+        type: string
+      dist_tag:
+        description: npm 分发标签，正式版填 latest，预发布版填 next 或 beta
+        required: true
+        default: latest
+        type: string
+      publish:
+        description: 实际发布到 npm；关闭时只检查和打包
+        required: true
+        default: false
+        type: boolean
+
+# 发布操作串行执行，避免两个版本同时更新同一分发标签。
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # npm 在发布时交换临时 OIDC 凭据，不使用长期发布令牌。
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      NPM_DIST_TAG: ${{ inputs.dist_tag }}
+    steps:
+      - name: 校验运行分支与输入
+        run: |
+          node --input-type=module <<'NODE'
+          if (process.env.GITHUB_REF !== 'refs/heads/main') {
+            throw new Error('请从 main 分支运行发布工作流。')
+          }
+          if (!/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(process.env.RELEASE_TAG ?? '')) {
+            throw new Error('版本标签格式错误，请填写 v 开头的完整版本号。')
+          }
+          if (!/^[a-z][a-z0-9-]*$/.test(process.env.NPM_DIST_TAG ?? '')) {
+            throw new Error('npm 分发标签必须以小写字母开头，只能包含小写字母、数字和连字符。')
+          }
+          NODE
+
+      - uses: actions/checkout@v6
+        with:
+          # 明确读取标签，避免把同名分支当成待发布版本。
+          ref: refs/tags/${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22.22.0'
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: 固定支持可信发布的 npm 版本
+        run: npm install --global npm@11.21.0
+
+      - name: 校验版本、仓库与分发标签
+        run: |
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo '版本标签未包含在 main 分支中，请先合并待发布提交。' >&2
+            exit 1
+          }
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs'
+          const manifest = JSON.parse(readFileSync('package.json', 'utf8'))
+          if (process.env.RELEASE_TAG !== `v${manifest.version}`) {
+            throw new Error('版本标签与 package.json 的版本号不一致。')
+          }
+          const repository = manifest.repository?.url?.replace(/^git\+/, '').replace(/\.git$/, '')
+          if (repository !== `https://github.com/${process.env.GITHUB_REPOSITORY}`) {
+            throw new Error('package.json 的仓库地址与当前 GitHub 仓库不一致。')
+          }
+          if (manifest.version.includes('-') && process.env.NPM_DIST_TAG === 'latest') {
+            throw new Error('预发布版本不能覆盖 latest，请选择 next 或 beta 等分发标签。')
+          }
+          console.log(`待发布版本：${manifest.name}@${manifest.version}；分发标签：${process.env.NPM_DIST_TAG}`)
+          NODE
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: 校验已提交的构建产物
+        run: git diff --exit-code -- lib/
+      - run: npm run test:engine
+      - run: npm run test:install
+      - run: npm run test:pack
+
+      - name: 生成经过检查的发布包
+        id: pack
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs'
+          import { join } from 'node:path'
+          import { spawnSync } from 'node:child_process'
+          import { packedEntry } from './scripts/npm-pack-json.mjs'
+          const result = spawnSync('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', process.env.RUNNER_TEMP], { encoding: 'utf8' })
+          if (result.error || result.status !== 0) {
+            throw new Error(`生成发布包失败：${result.error?.message ?? result.stderr}`)
+          }
+          const entry = packedEntry(result.stdout)
+          if (typeof entry.filename !== 'string' || !entry.filename.endsWith('.tgz')) {
+            throw new Error('npm 未返回有效的发布包文件名。')
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, `tarball=${join(process.env.RUNNER_TEMP, entry.filename)}\n`)
+          console.log(`发布包已生成：${entry.filename}`)
+          NODE
+
+      - name: 确认版本尚未发布
+        if: inputs.publish
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs'
+          const { name, version } = JSON.parse(readFileSync('package.json', 'utf8'))
+          const url = `https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(version)}`
+          const response = await fetch(url, { signal: AbortSignal.timeout(15000) })
+          if (response.ok) throw new Error('该版本已经发布，npm 版本不可覆盖，请准备新的版本号。')
+          if (response.status !== 404) throw new Error(`查询 npm 版本失败（HTTP ${response.status}），已停止发布。`)
+          NODE
+
+      - name: 使用可信发布上传同一发布包
+        if: inputs.publish
+        env:
+          PUBLISH_TARBALL: ${{ steps.pack.outputs.tarball }}
+        # 发布打包好的文件，避免 prepare 在检查之后再次改写构建产物。
+        run: npm publish "$PUBLISH_TARBALL" --ignore-scripts --access public --tag "$NPM_DIST_TAG"

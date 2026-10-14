@@ -1,37 +1,86 @@
-# Commands and release procedure
+# 检查命令与发布流程
 
-Use the release procedure only when the user has explicitly requested a release. The authorization boundaries in the root `AGENTS.md` still apply.
+实际发版、提交、创建标签、推送和创建 GitHub Release（发布记录）均须得到用户明确授权；
+配置工作流不等于授权发布版本。保留工作区中与发布配置无关的改动。
 
-## Commands
+## 一、检查命令
 
 ```sh
-npm install             # devDeps incl. tsdown, tsx, typescript
-npm run typecheck       # tsc --noEmit
-npm test                # node --import tsx --test tests/**/*.test.ts
-npm run test:install    # per-engine matrix: one fresh pnpm 10.34.5 generation per declared dsh version
-npm run test:engine     # install EVERY declared-compatible dsh in turn and prove the bundle links there
-npm run build           # tsdown -> lib/ (also runs via `prepare` on publish/git install)
-npm run test:pack       # verify all declared entries against actual packed files
-npm pack --dry-run --ignore-scripts # verify publish contents (must include lib/, cordis.patch.yml, README*, CHANGELOG, LICENSE)
+npm install                        # 安装开发依赖
+npm run typecheck                  # 类型检查
+npm test                           # 全量测试
+npm run build                      # 生成实际发布的 lib/ 文件
+npm run test:engine                # 逐个验证全部声明兼容的 DSH 引擎能加载插件
+npm run test:install               # 逐个验证兼容引擎的隔离安装
+npm run test:pack                  # 核对真实发布包中的全部导出入口
+npm pack --dry-run --ignore-scripts # 查看实际发布文件清单
 ```
 
-## Release procedure
+## 二、可信发布配置
 
-1. Edit `CHANGELOG.md` (Keep a Changelog format) for the new version.
-2. `npm version patch|minor|major --no-git-tag-version` — bump without auto-tag.
-3. `npm run typecheck && npm test && npm run build`.
-4. `npm run test:engine` — installs EVERY release `package.json` declares compatible, one after another,
-   and proves the built bundle LINKS and evaluates on each. A stale local peer set cannot make this check
-   (issue #43), so do not skip it when a peer range or an engine version moved, and do not narrow it to a
-   single `--version` and call the range verified.
-5. Commit, then `npm publish` (requires the maintainer's 2FA OTP; the maintainer runs it, not the agent).
-6. Tag and push: `git tag v<version> && git push && git push --tags`.
-7. **Create a GitHub Release** for the tag (`gh release create v<version> --title "v<version>" --notes-file <file>`). The release notes must be **bilingual**: Simplified Chinese first (a `## 中文` section), then a `---` divider and the English translation of the same notes. **Style: short and user-facing** — one or two sentences per entry saying WHAT was added, changed, or fixed and what it means for the user; NEVER how (no file names, no internal function/mechanism names, no implementation or debugging narrative — the CHANGELOG carries the technical detail, the release notes are a summary of it). Releases — not tags or pushes — are what star followers see in their activity feed and get notified about; skipping this step makes the release invisible to users who starred the repo.
+1. 本项目采用 GitHub Actions（自动化工作流）手动触发，通过
+   OIDC（开放身份连接）进行 Trusted Publishing（可信发布），不保存 npm 发布令牌。
+   工作流为 [publish.yml](../../.github/workflows/publish.yml)，须先进入默认分支 `main`。
+2. 在 npm 包 `@mars-sea/dsh-commandcode-provider` 的 Settings（设置）→
+   Trusted Publisher（可信发布者）中选择 GitHub Actions，填写以下绑定。
 
-## 持续集成门槛
+   | npm 字段 | 配置值 |
+   | --- | --- |
+   | Organization or user（组织或用户） | `Mars-Sea` |
+   | Repository（仓库） | `dsh-commandcode-provider` |
+   | Workflow filename（工作流文件名） | `publish.yml`，只填文件名 |
+   | Environment name（环境名称） | 留空，工作流未使用发布环境 |
+   | Allowed actions（允许操作） | 允许 `npm publish` 直接发布 |
 
-2026-09-30 起，合并检查在类型、测试、构建和生成文件一致性之后，运行真实宿主加载
-（`test:engine`）及隔离安装（`test:install`）；打包入口检查 `test:pack` 读取真实发布文件列表，校验条件和通配导出；不再声明缺失的源码子路径。
-打包使用 `--ignore-scripts`，防止准备脚本
-在一致性检查之后再次改写产物。这些检查需要 npm 网络，但不需要账户凭据或付费请求。
-本地通过不能代替 GitHub 上的实际执行结果。
+3. 也可由维护者使用命令行配置；管理可信发布绑定需要一次交互式双因素认证，
+   后续工作流发布不需要逐次输入验证码。先查看已有绑定，避免重复配置或移除其他绑定。
+
+   ```sh
+   npm trust list '@mars-sea/dsh-commandcode-provider'
+   npm trust github '@mars-sea/dsh-commandcode-provider' --repo=Mars-Sea/dsh-commandcode-provider --file=publish.yml --allow-publish
+   ```
+
+4. 工作流使用 GitHub 托管运行器、Node.js `22.22.0` 与 npm `11.21.0`，
+   给发布任务开放 `id-token: write`，关闭依赖缓存。npm 官方最低要求为 Node.js `22.14.0`
+   与 npm `11.5.1`；管理绑定的 `npm trust` 命令要求 npm `11.15.0` 及以上。
+5. **新绑定须在两天内完成首次成功发布，否则失效。**在工作流准备就绪且即将发版时创建绑定；
+   只检查、打包或 `npm publish --dry-run` 均不能验证真实 OIDC 发布权限。
+   本次配置不自动调整包的其他认证设置或撤销已有令牌。
+6. 官方依据：[可信发布说明](https://docs.npmjs.com/trusted-publishers/)、
+   [`npm trust` 命令](https://docs.npmjs.com/cli/v11/commands/npm-trust/)。
+
+## 三、手动发布版本
+
+1. 获得本次发版授权后，更新 `CHANGELOG.md`，使用
+   `npm version patch|minor|major --no-git-tag-version` 更新版本，不自动创建标签。
+2. 运行第一章的检查。`test:engine` 必须验证所有声明兼容的 DSH 版本；不能只验证某一个版本
+   就声称整个范围通过。若兼容范围变化，同时运行 `test:install`。
+3. 提交经确认的发布内容，推送 `main`，创建并推送 `v<版本号>` 标签。
+   标签须指向已合入 `main` 的提交，版本须与该提交的 `package.json` 一致。
+   手动可信发布必须先推送标签，再从 GitHub 发布到 npm。
+4. 打开 GitHub 仓库的 Actions（工作流）→「npm 可信发布」→ Run workflow（运行工作流），
+   运行分支选择 `main`，填写以下参数。
+
+   | 工作流参数 | 用法 |
+   | --- | --- |
+   | `tag`（版本标签） | 已推送的完整标签，例如 `v0.13.1` |
+   | `dist_tag`（npm 分发标签） | 正式版用 `latest`；预发布版明确选择 `next`、`beta` 等，禁止覆盖 `latest` |
+   | `publish`（实际发布） | 默认关闭，仅检查并打包；确认实际发版时开启 |
+
+5. 工作流重新执行类型、测试、构建、产物一致性、真实宿主加载、隔离安装及发布入口检查。
+   通过后生成发布包；实际发布时先确认版本尚不存在，再通过可信发布上传同一包。
+   发布时不重新执行 `prepare`，避免检查后的构建产物被改写。
+   GitHub 对公开仓库的公开包自动生成 Provenance（来源证明）。
+6. 确认 GitHub 工作流成功、npm 对应版本及分发标签正确，再创建 GitHub Release（发布记录）。
+   发布说明须简短、面向用户、双语：先 `## 中文`，再 `---` 分隔线与对应英文译文。
+   每条用一两句话说明变化与用户收益，不写文件名、内部机制或调试过程。
+   技术细节保留在 `CHANGELOG.md`；不能用仅推送标签代替发布记录。
+
+## 四、验证边界
+
+1. 合并工作流 [ci.yml](../../.github/workflows/ci.yml) 保持原有检查门槛。
+   新增发布工作流不会因推送分支或标签自动发版；必须手动触发并开启 `publish`。
+2. 本地工作流语法、输入拦截和打包检查通过，只能证明本地配置与检查可运行；
+   未上传到 GitHub、未完成 npm 绑定、未成功执行真实发布时，不能报告可信发布已经验证。
+3. 工作流首次「仅检查」可使用已有的发布标签；实际发布必须使用尚未发布的新版本。
+   完整检查需要 npm 网络，但不需要账户凭据或付费模型请求；只有真实上传使用 OIDC。
