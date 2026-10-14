@@ -48,6 +48,10 @@ npm pack --dry-run --ignore-scripts # 查看实际发布文件清单
    本次配置不自动调整包的其他认证设置或撤销已有令牌。
 6. 官方依据：[可信发布说明](https://docs.npmjs.com/trusted-publishers/)、
    [`npm trust` 命令](https://docs.npmjs.com/cli/v11/commands/npm-trust/)。
+7. **首次实际发布已验证（2026-10-14，`0.13.1`）**：[发布工作流](https://github.com/Mars-Sea/dsh-commandcode-provider/actions/runs/38568422035)
+   通过全部检查并实际上传，npm `latest` 指向 `0.13.1`，绑定由 Pending validation（待首次发布验证）
+   变为 Valid（有效），发布未要求人工输入验证码。注册表已提供来源证明，包摘要、工作流及发版提交匹配；
+   原先的两天期限适用于新建且未验证的绑定，本项目当前绑定已完成验证。
 
 ## 三、手动发布版本
 
