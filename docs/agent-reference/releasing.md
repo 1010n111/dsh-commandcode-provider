@@ -7,6 +7,8 @@
 
 ```sh
 npm install                        # 安装开发依赖
+# 校验锁文件与 package.json 同步：在隔离目录运行，不触碰本地 node_modules
+tmp=$(mktemp -d) && cp package.json package-lock.json "$tmp"/ && (cd "$tmp" && npm ci --dry-run --ignore-scripts)
 npm run typecheck                  # 类型检查
 npm test                           # 全量测试
 npm run build                      # 生成实际发布的 lib/ 文件
@@ -15,6 +17,11 @@ npm run test:install               # 逐个验证兼容引擎的隔离安装
 npm run test:pack                  # 核对真实发布包中的全部导出入口
 npm pack --dry-run --ignore-scripts # 查看实际发布文件清单
 ```
+
+锁文件校验必须通过：本地 `npm install` 成功不能证明 `package-lock.json` 与 `package.json` 同步，
+平台可选依赖条目缺失时只有 `npm ci` 会以 `EUSAGE` 报出。重建锁文件后若发现平台分支缺失，
+按上一版锁文件的 `resolved`（解析地址）与 `integrity`（完整性摘要）精准补回、**不重新解析依赖**；
+理由与判据见[《决策记录》第八章第 11 条](../决策记录.md#八dsh-引擎兼容范围与验证边界)。
 
 ## 二、可信发布配置
 
