@@ -28,9 +28,9 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   `react`, `react/jsx-runtime`, `react-dom`, `react-dom/client`,
   `@deepseek-ai/cordis`, `@deepseek-ai/dsh-client-store`,
   `@deepseek-ai/dsh-client-ui-slots`, `@deepseek-ai/dsh-client-ui-primitives`,
-  `@deepseek-ai/dsh-client-ui-dockkit` (read out of the 0.2.1-alpha.2 engine, and
-  re-read at every Harness peer bump: the list is unchanged from 0.2.1-alpha.1,
-  0.2.0-rc.2 and
+  `@deepseek-ai/dsh-client-ui-dockkit` (read out of the 0.2.1-alpha.3 engine, and
+  re-read at every Harness peer bump: the list is unchanged from 0.2.1-alpha.2,
+  0.2.1-alpha.1, 0.2.0-rc.2 and
   0.1.7-rc.2) — so
   the three `require()` targets `lib/client.js` carries resolve in the webview
   with no installed copy, which is why `react`,
@@ -49,7 +49,7 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   NON-optional peers**, so each optional name must also be a `devDependency` or
   the authortime tree silently loses it — `tests/client-boot.test.ts` imports
   the React component tree, so an absent `react` is a red `npm test`, and
-  `dsh-client-ui-primitives` (verified on 0.2.1-alpha.1 and 0.2.1-alpha.2) declares NO dependencies at all, so
+  `dsh-client-ui-primitives` (verified on 0.2.1-alpha.1, 0.2.1-alpha.2 and 0.2.1-alpha.3) declares NO dependencies at all, so
   nothing else would pull it in. Note that the same package's npm entry point
   imports `clsx`, `katex` and the shiki/mdast stack without declaring them
   (the ENGINE's own tree does not install them either): it is a seed module,
@@ -63,7 +63,11 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   `workspace:~`, so publishing an engine rewrites them to the `~<version>` that
   shipped alongside it: `0.2.1-alpha.1` pairs `cordis ~4.0.5-alpha.1` and
   `schemastery ~3.18.5-alpha.1` (npm carries a `dsh-0-2-1-alpha-1` dist-tag for
-  both), and `0.2.1-alpha.2` pairs exactly the same two versions. Leaving this
+  both), and `0.2.1-alpha.2` pairs exactly the same two versions.
+  `0.2.1-alpha.3` moves them to `cordis ~4.0.5-alpha.2` and
+  `schemastery ~3.18.5-alpha.2`, which the declared `~4.0.5-alpha.1` /
+  `~3.18.5-alpha.1` branches already admit (a tilde on `4.0.5-alpha.1` accepts
+  `4.0.5-alpha.2`), so both declared ranges stay unchanged. Leaving this
   plugin's previous `^4.0.2` / `~3.18.4` in place is an
   immediate `ERESOLVE`, not a silent mismatch: `dsh-agent@0.2.1-alpha.1` demands
   `cordis ~4.0.5-alpha.1` and `dsh-settings@0.2.1-alpha.1` demands
@@ -82,9 +86,12 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   genuine conflict.
 - **兼容范围只保留两条通道的最新已验证版本。** 用户于 2026-10-11 确认维护
   一个 RC（候选发布版）与一个 alpha（早期测试版）；当前为
-  `0.2.0-rc.2 || 0.2.1-alpha.2`，分别与当天核对的官方 npm `latest`、`alpha` 标签一致。
+  `0.2.0-rc.2 || 0.2.1-alpha.3`，分别与官方 npm `latest`、`alpha` 标签一致
+  （alpha 通道为 2026-10-14 发布的 `0.2.1-alpha.3`，标签 SHA
+  `2fbf4359b82fb94c03dcce0b831660d87f12ea5c`；其前身 `0.2.1-alpha.2` 的标签 SHA 为
+  `d743267388641bc76f17c45ce8b4c231aed1d32c`）。
   同通道升级在核对官方发布、接口及验证结果后替换旧版，不累加历史分支。
-  `0.2.1-alpha.1` 已退出当前兼容范围，其配置需升级引擎。
+  `0.2.1-alpha.1` 与 `0.2.1-alpha.2` 均已退出当前兼容范围，其配置需升级引擎。
   `@deepseek-ai/dsh-*` 的 `peerDependencies`、`devDependencies`、
   `dsh.compatibility.dsh`、`engines.dsh` 及锁文件同批同步，
   `dsh.compatibility.dshReleases` 只记录这两个版本。
@@ -118,5 +125,11 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
 
 ## 二、流响应的宿主验证
 
-1. `npm run test:engine` 使用真实 DSH 的 `LlmRuntime`（模型运行时）及 `BlockAssembler`（响应块装配器），对每个已声明引擎（`0.2.0-rc.2`、`0.2.1-alpha.2`）各跑一遍：加载发布产物并交付合成响应。22 个场景覆盖三协议成功、正文截断、纯思考达到上限、工具断流、正文及工具取消、最终标记后多余内容，以及 OpenAI 尾部错误；确认唯一终态、失败关联标识、最终用量和中断工具快照。
+1. `npm run test:engine` 使用真实 DSH 的 `LlmRuntime`（模型运行时）及 `BlockAssembler`（响应块装配器），对每个已声明引擎（`0.2.0-rc.2`、`0.2.1-alpha.3`）各跑一遍：加载发布产物并交付合成响应。22 个场景覆盖三协议成功、正文截断、纯思考达到上限、工具断流、正文及工具取消、最终标记后多余内容，以及 OpenAI 尾部错误；确认唯一终态、失败关联标识、最终用量和中断工具快照。
 2. 宿主源码在失败或取消终态走请求错误分支，不进入工具执行；验证没有运行完整代理工具链。适配器本地锁和待读释放由回归测试覆盖；真实提供商异常、收费记录及远端连接实际关闭时间尚未实测。
+
+## 三、测试夹具的引擎感知适配
+
+1. `scripts/verify-engine-load.mjs` 的夹具（fixture，测试夹具）自 alpha.3 起按引擎能力探测装配，因为该版本引入两处必需项：`TypertGatewayService`（Typert 网关服务）的 `static inject` 新增 `remoteAccess`，缺这个服务网关就装配不起来（该服务由 alpha.3 新引入的包 `@deepseek-ai/dsh-api-remote-access` 提供，alpha.2 上不存在该包）；`InvokeRemoteRequest.peer` 由可选变必需，远端调用必须自带 Peer（对端）。
+2. 适配方式是**探测**而不是按版本硬编码分支：先探测式加载 `@deepseek-ai/dsh-api-remote-access`（缺失即旧款引擎，跳过该注入），再探测式构造 owner Peer（alpha.2 的 `dsh-client-connection` 只有 `OperatorPeer`、没有 `Peer`，因此旧款返回 `undefined`，调用处据此决定要不要携带）。同一份夹具因此同时适配旧款与新款的已声明引擎。
+3. **区分「运行时零改动」与「夹具适配」**：本轮 alpha.2 → alpha.3 的破坏性变化只落在测试采集脚本上，插件 `src/` 与 `lib/` 运行时未改一行即可工作；夹具的引擎感知改动只是让这套检查能在新引擎上走到被测代码，不代表插件运行时依赖了 alpha.3 的新接口。审计证据：`npm run typecheck`、948 项测试、`npm run build`、`npm run test:engine`（双引擎矩阵）与 `npm run test:install` 全部通过。

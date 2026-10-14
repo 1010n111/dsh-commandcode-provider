@@ -297,12 +297,21 @@ export function parseProviderError(errText: string): ParsedProviderError {
  * `CONTEXT_WINDOW_EXCEEDED`, because that failure has a recovery the harness
  * performs and a generic provider error does not. Every message built here is
  * bilingual — the harness renders it verbatim in its retry chrome.
+ *
+ * The optional `priorRejection` records a refusal from an earlier transport
+ * attempt in this same call (see {@link isMessagesPermissionRejection}), so a
+ * failed CLI fallback still shows what the Messages surface said first. It is
+ * presentation only: classification, retry budget and failure code all keep
+ * reading the current attempt.
  */
 export function generateHttpError(
   status: number,
   errText: string,
   retryAfterMs?: number,
   parsed: ParsedProviderError = parseProviderError(errText),
+  // 本次调用此前失败过的有界标识（目前只有 messages 的 `permission_error`）。
+  // 只进入最终文案，不参与分类、重试预算与失败码，否则展示层会反过来改变行为。
+  priorRejection?: string,
 ): LlmError {
   // Historically this diagnosis reads only a nested `error` envelope; root
   // fields still feed account rotation and the Go-plan fallback below.
@@ -403,17 +412,33 @@ export function generateHttpError(
       { status: 413 },
     )
   }
-  // 上游正文可能回显输入或返回整页英文错误；仅展示中文解释和有界错误码。
+  // 上游正文可能回显输入或返回整页英文错误；仅展示中文解释和有界错误标识。
   // 分类仍使用上面的原始正文，不能因为收敛展示文案改变重试与压缩行为。
-  const diagnosticCode = parsed.code ?? /^\s*(MODEL_NOT_IN_PLAN|INSUFFICIENT_CREDITS|USAGE_EXCEEDED|PREMIUM_CREDITS_EXHAUSTED)\b/i.exec(parsed.message ?? '')?.[1]
-  const diagnostic = diagnosticCode !== undefined && /^[A-Za-z0-9_.:-]{1,80}$/.test(diagnosticCode)
-    ? `（${diagnosticCode}）` : ''
+  const safeIdentifier = (value: string | undefined): string | undefined =>
+    value !== undefined && /^[A-Za-z0-9_.:-]{1,80}$/.test(value) ? value : undefined
+  const diagnosticCode = safeIdentifier(parsed.code)
+    ?? /^\s*(MODEL_NOT_IN_PLAN|INSUFFICIENT_CREDITS|USAGE_EXCEEDED|PREMIUM_CREDITS_EXHAUSTED)\b/i.exec(parsed.message ?? '')?.[1]
+  // Messages 接口常只有 type；两个字段分别校验，非法 code 不能掩盖合法 type。
+  const diagnosticType = safeIdentifier(parsed.type)
+  const identifiers = [
+    diagnosticCode === undefined ? undefined : `错误码：${diagnosticCode}`,
+    diagnosticType === undefined ? undefined : `错误类型：${diagnosticType}`,
+  ].filter((value): value is string => value !== undefined)
+  const diagnostic = identifiers.length === 0 ? '' : `（${identifiers.join('；')}）`
+  // 以本次（回退后的 CLI 直连）结果为主，另附此前反代侧的拒绝标识：只报第二段
+  // 链路，用户无从判断 messages 端点拒绝过什么。标识再过一次同样的有界校验，
+  // 免得上游正文里的任意串经此进入展示文案。
+  const priorIdentifier = priorRejection === undefined ? undefined : safeIdentifier(priorRejection)
+  const priorNote = priorIdentifier === undefined
+    ? ''
+    : `此前 Messages 接口以 ${priorIdentifier} 拒绝，已回退 CLI 直连，仍未成功。`
   return new LlmError(
     `Command Code 请求失败（HTTP ${status}）${diagnostic}：`
       + (status === 429 ? '请求受到用量或速率限制，请稍后重试并检查账户额度。'
         : status === 408 ? '服务端处理超时，请稍后重试。'
           : status >= 500 ? '上游服务暂时无法完成请求，请稍后重试。'
-          : '服务端拒绝了本次请求，请检查模型、套餐和请求设置。'),
+          : '服务端拒绝了本次请求，请检查模型、套餐和请求设置。')
+      + priorNote,
     httpErrorCode(status),
     {
       status,
@@ -644,4 +669,24 @@ export function isUpgradeRequiredError(
   if ((parsed.code ?? parsed.type)?.toLowerCase() === 'upgrade_required') return true
   if (parsed.message?.toLowerCase().includes('go plan') && parsed.message.toLowerCase().includes('api access')) return true
   return false
+}
+
+/**
+ * True when the Messages surface (`/provider/v1/messages`) refused one request
+ * with Anthropic's `permission_error` (issue #84).
+ *
+ * 职责：把「反代 Claude 链路对该账号不放行」这一种拒绝，从普通权限失败里
+ * 单独认出来，交给适配器决定是否改用 CLI 直连（`/alpha/generate`）。
+ *
+ * 为什么边界如此窄：只认 HTTP 403 加上结构化的 `code`/`type` 等于
+ * `permission_error`，不扫原始正文。正文可能回显输入或返回整页英文错误，
+ * 扫文本会把无关失败也变成一次传输切换；而真正「模型不在套餐内」的拒绝
+ * （`MODEL_NOT_IN_PLAN` 等其它标识）继续按原样上报，不被这条规则吞掉。
+ */
+export function isMessagesPermissionRejection(
+  status: number,
+  parsed: ParsedProviderError,
+): boolean {
+  if (status !== 403) return false
+  return (parsed.code ?? parsed.type)?.toLowerCase() === 'permission_error'
 }

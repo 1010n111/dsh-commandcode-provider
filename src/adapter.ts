@@ -25,11 +25,11 @@ import { createHash, randomUUID } from 'node:crypto'
 import { IDENTITY_ENCODING_HEADER } from './response-encoding.ts'
 import { MAX_TIMEOUT_SECONDS } from './timeout-limits.ts'
 import { modelIsVisible } from './model-visibility.ts'
-import { bilingual, MAX_TRUSTED_RESET_MS, parseProviderError, generateHttpError, parseRetryAfterMs, classifyAccountRejection, isUpgradeRequiredError, type AccountRotationReason } from './provider-errors.ts'
+import { bilingual, MAX_TRUSTED_RESET_MS, parseProviderError, generateHttpError, parseRetryAfterMs, classifyAccountRejection, isUpgradeRequiredError, isMessagesPermissionRejection, type AccountRotationReason } from './provider-errors.ts'
 export type { AccountRotationReason } from './provider-errors.ts'
 import { ownedResponseStream, settleStreamResponse, responseIdentifiers, failureWithRequestId, type CommandCodeProtocol, type ResponseMetadata } from './stream-response.ts'
 
-import type { AttachmentStore, ImageAttachmentRef, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentStore, ImageAttachmentRef, ImageRequestTarget, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 
 import {
   assertUsableApiKey,
@@ -268,7 +268,7 @@ function requestFingerprint(protocol: CommandCodeProtocol, body: Record<string, 
 }
 
 /** Parse a billing-period timestamp (ISO string or millis) into millis; 0 when absent/invalid. */
-function periodEndValue(value: unknown): number {
+function periodTimestampValue(value: unknown): number {
   const asNumber = numberValue(value)
   if (asNumber !== undefined) return asNumber
   const asString = stringValue(value)
@@ -1531,6 +1531,8 @@ export interface CommandCodeUsage {
   totalTokensOut: number
   totalCredits: number
   periodBasis: string
+  /** 官方汇总返回的统计起点；缺失时不把查询参数当作已确认的统计范围。 */
+  periodStart?: number
 }
 
 /** Credit/limit state from `/alpha/billing/credits`. */
@@ -1577,6 +1579,8 @@ export interface CommandCodePlan {
   monthlyCredits: number | null
   /** Billing period end in millis; 0 when the endpoint did not report one. */
   currentPeriodEnd: number
+  /** 官方订阅账期起点，毫秒；旧宿主或未报告该字段时缺省。 */
+  currentPeriodStart?: number
 }
 
 /**
@@ -1616,7 +1620,7 @@ function parseUsageTotals(usage: Record<string, unknown> | undefined): CommandCo
   // — undefined here means the endpoint failed or answered non-JSON, which
   // the caller already booked into `failures`.
   if (usage === undefined) return undefined
-  return {
+  const result: CommandCodeUsage = {
     totalCount: numberValue(usage.totalCount) ?? 0,
     totalCost: numberValue(usage.totalCost) ?? 0,
     successRate: numberValue(usage.successRate) ?? 0,
@@ -1625,8 +1629,12 @@ function parseUsageTotals(usage: Record<string, unknown> | undefined): CommandCo
     totalTokensIn: numberValue(usage.totalTokensIn) ?? 0,
     totalTokensOut: numberValue(usage.totalTokensOut) ?? 0,
     totalCredits: numberValue(usage.totalCredits) ?? 0,
-    periodBasis: stringValue(usage.periodBasis) ?? 'billing-period',
+    // 未上报统计口径不能默认写成账期，客户端必须明确显示周期未确认。
+    periodBasis: stringValue(usage.periodBasis) ?? 'unreported',
   }
+  const start = periodTimestampValue(usage.periodStart)
+  if (start > 0 && Number.isFinite(new Date(start).getTime())) result.periodStart = start
+  return result
 }
 
 /**
@@ -1680,9 +1688,8 @@ function parseCreditLimits(credits: Record<string, unknown> | undefined): Comman
 }
 
 /**
- * Parse the account identity from whoami plus the plan identity from the
- * subscriptions/credits payloads. Returns the org id for the subscriptions
- * query alongside, so getUsage fetches whoami first and the rest in parallel.
+ * Read the account identity and organization scope from whoami. Every billing
+ * and usage request must use this same organization, so getUsage reads it first.
  */
 function parseAccountIdentity(whoami: Record<string, unknown> | undefined): {
   account: CommandCodeAccount | undefined
@@ -2418,6 +2425,28 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
     }
   }
 
+  /**
+   * The dimensions and byte target this route actually puts on the wire.
+   *
+   * The base default answers with the NORMALIZED original (`image.width`,
+   * `image.height`, `image.bytes`), which is right only for an adapter that
+   * does not resize. This route always re-encodes through
+   * `readImageRequest(ref, requestImageTarget(ref))` — long edge 1568, encoded
+   * bytes capped at 1 MiB — so the default would over-report both dimensions
+   * and bytes for every image, most visibly for Retina screenshots.
+   *
+   * `imageRequestPricing` above already prices at this same target; exposing it
+   * here keeps the harness's own readers (the CUA screenshot path calls
+   * `ctx.llm.imageRequestTarget`) consistent with what the gateway receives.
+   * @param _provider - registered provider route; one route per adapter here.
+   * @param _model - exact model id; the target is model-independent on this route.
+   * @param image - normalized attachment whose request projection is resolved.
+   * @returns the same target `readImageRequest` encodes to, before base64 expansion.
+   */
+  override imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef): ImageRequestTarget {
+    return requestImageTarget(image)
+  }
+
   override async listModels(
     provider: string,
     opts?: { unfiltered?: boolean },
@@ -2861,19 +2890,29 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
 
     const report: CommandCodeUsageReport = { failures }
 
-    // whoami first (account identity + the org id the subscriptions query
-    // needs); the other three endpoints are independent once headers exist,
-    // so they run in parallel instead of paying 4x the timeout serially.
+    // 与官方命令行一致：先固定组织，再并行读取余额和订阅；汇总必须等账期起点。
+    // 不使用本地自然月作为替代，订阅失败时仍让汇总独立降级。
     const whoami = await getJson('/alpha/whoami')
     const { account, orgId } = parseAccountIdentity(whoami)
     if (account !== undefined) report.account = account
-    const [usage, credits, subscription] = await Promise.all([
-      getJson('/alpha/usage/summary'),
-      getJson('/alpha/billing/credits'),
-      getJson(orgId === undefined
-        ? '/alpha/billing/subscriptions'
-        : `/alpha/billing/subscriptions?orgId=${encodeURIComponent(orgId)}`),
+    const scopedPath = (path: string, since?: string): string => {
+      const params = new URLSearchParams()
+      if (orgId !== undefined) params.set('orgId', orgId)
+      if (since !== undefined) params.set('since', since)
+      const query = params.toString()
+      return query ? `${path}?${query}` : path
+    }
+    const [credits, subscription] = await Promise.all([
+      getJson(scopedPath('/alpha/billing/credits')),
+      getJson(scopedPath('/alpha/billing/subscriptions')),
     ])
+    const subData = subscription !== undefined && isRecord(subscription.data) ? subscription.data : undefined
+    const rawStart = subData?.currentPeriodStart
+    const periodStart = periodTimestampValue(rawStart)
+    const validStart = periodStart > 0 && Number.isFinite(new Date(periodStart).getTime())
+    // 保留上游时间的字符串/毫秒表示，仅编码查询值，不重算日期或时区。
+    const since = validStart ? String(rawStart) : undefined
+    const usage = await getJson(scopedPath('/alpha/usage/summary', since))
 
     // usage/summary -> totals.
     const totals = parseUsageTotals(usage)
@@ -2886,7 +2925,6 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
     // billing/subscriptions -> plan identity + billing period. The credits
     // response may also carry a planId; it is the fallback when the
     // subscriptions endpoint fails.
-    const subData = subscription !== undefined && isRecord(subscription.data) ? subscription.data : undefined
     const creditsData = credits !== undefined && isRecord(credits.credits) ? credits.credits : undefined
     const planId = stringValue(subData?.planId) ?? stringValue(creditsData?.planId)
     if (subData !== undefined || planId !== undefined) {
@@ -2896,8 +2934,9 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
         name: info?.name ?? planId ?? '',
         status: stringValue(subData?.status) ?? '',
         monthlyCredits: info?.monthlyCredits ?? null,
-        currentPeriodEnd: periodEndValue(subData?.currentPeriodEnd),
+        currentPeriodEnd: periodTimestampValue(subData?.currentPeriodEnd),
       }
+      if (validStart) report.plan.currentPeriodStart = periodStart
     }
 
     const blocked = classifyTotalFailure(failures, failed)
@@ -3118,6 +3157,10 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
     // accounts default to the documented Provider Chat Completions surface
     // (`resolveProtocol()` routes Claude to Messages on Provider API access).
     let protocol: CommandCodeProtocol = this.resolveProtocol(connection, apiKey, options.model, modelEntry)
+    // 反代 messages 端点对本次账号的权限拒绝（issue #84）。只活在一次 stream()
+    // 调用里，并在最终错误文案中留痕：它描述的是这一条 Claude 链路，既不能
+    // 缓存成整个网关的协议结论，也不该覆盖 CLI 直连自己的失败原因。
+    let messagesPermissionRejection: string | undefined
     // Image budget (issue #37): the body is built from the PROJECTED history,
     // never the raw one. Rung 0 is the standing budget; a 413 below steps down
     // the ladder. The session surface owns the offload set, so this throws
@@ -3229,17 +3272,30 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
         // access), retry the same key through /alpha/generate without burning
         // the double TTFT on every later request.
         //
+        // 第二类触发（issue #84）：messages 端点用 `permission_error` 拒绝。
+        // 反代转发 Claude 的那条链路可能单独对该账号失效，而同一把密钥的 CLI
+        // 直连仍然可用（2026-10-14 实测：GOAT 账号请求 /alpha/generate +
+        // claude-haiku-5-5 正常返回）。触发面由
+        // `isMessagesPermissionRejection` 收紧到 403 加结构化 permission_error，
+        // 其余权限失败继续原样上报，避免把真实限制伪装成传输问题。
+        //
         // The Messages surface is included, but its downgrade is NOT cached:
         // the cache is keyed by gateway and API key, and a Claude-only refusal says
         // nothing about the account's other models, so remembering it would
         // drag DeepSeek, GLM and Qwen off the Provider API for the whole TTL
         // (issue #46). A Go-plan account never reaches here in the first place
         // — its cached billing tier already routes it to the CLI transport.
+        const messagesPermissionDenied = protocol === 'messages'
+          && isMessagesPermissionRejection(attempt.status, providerError)
         if (
           protocol !== 'cli'
-          && isUpgradeRequiredError(attempt.status, attempt.errText, providerError)
+          && (messagesPermissionDenied
+            || isUpgradeRequiredError(attempt.status, attempt.errText, providerError))
         ) {
           const wasMessages = protocol === 'messages'
+          if (messagesPermissionDenied) {
+            messagesPermissionRejection = providerError.code ?? providerError.type
+          }
           protocol = 'cli'
           if (!wasMessages) this.rememberProtocol(connection.apiBase, apiKey, 'cli')
           requestOptions = withSurfaceOffload(
@@ -3284,6 +3340,8 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
           if (next !== undefined && !tried.has(next)) {
             apiKey = next
             // 降级只描述上一账号；新账号必须按自己的套餐/缓存重新选择通道。
+            // 权限拒绝同理：它属于刚被换下的那把密钥，不能跟着新账号继续报。
+            messagesPermissionRejection = undefined
             const nextProtocol = this.resolveProtocol(connection, apiKey, options.model, modelEntry)
             if (nextProtocol !== protocol) {
               protocol = nextProtocol
@@ -3333,7 +3391,9 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
             { status: attempt.status, ...(wait > 0 && wait <= RETRY_MAX_DELAY_MS ? { providerRetryAfterMs: wait } : {}) },
           )
         }
-        throw generateHttpError(attempt.status, attempt.errText, attempt.retryAfterMs, providerError)
+        throw generateHttpError(
+          attempt.status, attempt.errText, attempt.retryAfterMs, providerError, messagesPermissionRejection,
+        )
       }
     } catch (error) {
       trace.record('connect-error', { message: boundTraceText(errorChain(error)), responseMetadata })

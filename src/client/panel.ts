@@ -19,7 +19,7 @@
 import type { CommandCodeUsageReport } from '../adapter.ts'
 import type { CommandCodeAccountUsage } from '../usage-wire.ts'
 import type { UsagePageState } from './usage.ts'
-import { formatMoney, formatMoneyExact, formatSuccessRate, formatTokensCompact, formatResetAt } from '../display-format.ts'
+import { formatMoney, formatMoneyExact, formatSuccessRate, formatTokensCompact, formatResetAt, formatUsageBillingPeriod } from '../display-format.ts'
 import { PANEL_KEYS, panelTextEN } from './panel-copy.ts'
 import type { PanelKey, PanelTranslator } from './panel-copy.ts'
 
@@ -126,6 +126,8 @@ export interface PanelAccountView {
   monthly: PanelMonthlyView | undefined
   windows: PanelWindowView[]
   stats: PanelStatView[]
+  /** 官方统计周期；与订阅未对齐时显示未知，不能用账期截止日单独推断。 */
+  usagePeriod: string
 }
 
 /** What actually went wrong, once — for the alert box. */
@@ -323,13 +325,14 @@ function accountView(entry: CommandCodeAccountUsage, t: PanelTranslator): PanelA
   const plan = report.plan
   const credits = report.credits
   const usage = report.usage
+  const usageRange = formatUsageBillingPeriod(usage?.periodStart, plan?.currentPeriodStart, plan?.currentPeriodEnd)
 
   const stats: PanelStatView[] = []
   if (usage !== undefined) {
     stats.push({
       label: 'requests',
-      value: String(usage.completedCount),
-      sub: `${usage.failedCount} ${t('failed')}`,
+      value: String(usage.totalCount),
+      sub: `${usage.completedCount} ${t('completed')} / ${usage.failedCount} ${t('failed')}`,
     })
     stats.push({ label: 'successRate', value: `${formatSuccessRate(usage.successRate)}%`, sub: '' })
     stats.push({
@@ -372,6 +375,9 @@ function accountView(entry: CommandCodeAccountUsage, t: PanelTranslator): PanelA
     monthly: monthlyView(report),
     windows,
     stats,
+    usagePeriod: usage === undefined ? '' : usageRange
+      ? `${t('usageBillingPeriod')} ${usageRange}`
+      : t('usagePeriodUnknown'),
   }
 }
 

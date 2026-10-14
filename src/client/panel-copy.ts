@@ -69,6 +69,9 @@ export type PanelKey =
   /** Usage tiles. */
   | 'requests'
   | 'failed'
+  | 'completed'
+  | 'usageBillingPeriod'
+  | 'usagePeriodUnknown'
   | 'successRate'
   | 'spend'
   | 'tokens'
@@ -119,6 +122,9 @@ export const PANEL_COPY_ZH: Record<PanelKey, string> = {
   credits: '额度',
   limits: '配额窗口',
   usage: '用量',
+  completed: '成功',
+  usageBillingPeriod: '官方账期用量',
+  usagePeriodUnknown: '官方用量汇总，统计周期未确认',
   monthly: '月额度',
   monthlyLimit: '月额度上限',
   monthlyUsed: '本月已用',
@@ -175,6 +181,9 @@ export const PANEL_COPY_EN: Record<PanelKey, string> = {
   credits: 'Credits',
   limits: 'Quota windows',
   usage: 'Usage',
+  completed: 'completed',
+  usageBillingPeriod: 'Official billing-period usage',
+  usagePeriodUnknown: '官方用量汇总，统计周期未确认',
   monthly: 'Monthly',
   monthlyLimit: 'Monthly limit',
   monthlyUsed: 'Monthly used',

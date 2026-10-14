@@ -77,6 +77,22 @@ test('schema accepts a fully populated report', () => {
   assert.deepEqual(parsed, value)
 })
 
+test('账期起点可选，严格远端保留新字段并兼容旧报告', () => {
+  const report = makeReport()
+  report.usage!.periodStart = 1_800_000_000_000
+  report.plan!.currentPeriodStart = 1_800_000_000_000
+  const value = wrap(makeAccount(report))
+  assert.deepEqual(usageReportSchema.parse(value), value)
+  const legacy = makeReport()
+  const parsed = usageReportSchema.parse(wrap(makeAccount(legacy)))
+  assert.equal(Object.hasOwn(parsed.accounts[0]!.report.usage!, 'periodStart'), false)
+  assert.equal(Object.hasOwn(parsed.accounts[0]!.report.plan!, 'currentPeriodStart'), false)
+  for (const invalid of ['2026-10-01', null, NaN, Infinity]) {
+    assert.throws(() => usageReportSchema.parse(wrap(makeAccount({ ...report, usage: { ...report.usage!, periodStart: invalid as number } }))))
+    assert.throws(() => usageReportSchema.parse(wrap(makeAccount({ ...report, plan: { ...report.plan!, currentPeriodStart: invalid as number } }))))
+  }
+})
+
 test('schema accepts multiple accounts with distinct rotation state', () => {
   const value = wrap(
     makeAccount(makeReport()),

@@ -30,3 +30,12 @@ export function windowRatio(used: number, cap: number): number {
 export function formatResetAt(ms: number): string {
   return ms <= 0 ? '' : new Date(ms).toLocaleString()
 }
+
+/** 只有官方汇总与订阅共同确认同一起点，才展示完整账期；旧宿主和部分响应保持未知。 */
+export function formatUsageBillingPeriod(usageStart: number | undefined, planStart: number | undefined, planEnd: number | undefined): string {
+  if (usageStart === undefined || planStart !== usageStart || planEnd === undefined || usageStart <= 0 || planEnd <= usageStart) return ''
+  const start = new Date(usageStart)
+  const end = new Date(planEnd)
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return ''
+  return `${start.toLocaleDateString()} – ${end.toLocaleDateString()}`
+}

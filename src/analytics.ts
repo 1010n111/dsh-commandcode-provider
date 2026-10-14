@@ -45,6 +45,20 @@ export function foldRequests(session: string, log: AnalyticsLog): RequestFact[] 
       }
       continue
     }
+    // 压缩摘要是压缩器自己发的一次 `ctx.llm.stream()`：它不落在任何 turn/step 上，
+    // 也不产生 `request/header`，用量只出现在这个事件里。只登记本路由的摘要，并且
+    // 不碰 current / listed / provider 状态 —— 摘要在两次请求之间发生，不属于它们。
+    // provider 与 model 由事件自带（后端上报），不从上一个 header 继承。
+    if (event.type === 'compaction/summary') {
+      if (event.seq >= log.inheritedEventCount && d.provider === 'commandcode') {
+        const tokens = tokensOf(d.usage)
+        facts.push({
+          session, model: typeof d.model === 'string' ? d.model : '', at: event.time, retry: false, outcome: 'completed',
+          ...tokens === undefined ? {} : { tokens },
+        })
+      }
+      continue
+    }
     if (event.type === 'step/start' || event.type === 'llm/retry-started') { begin(event, d, event.type === 'llm/retry-started'); continue }
     if (!current && ['assistant/message', 'assistant/attempt', 'assistant/chunk'].includes(event.type)) {
       begin(event, d, false); started = false

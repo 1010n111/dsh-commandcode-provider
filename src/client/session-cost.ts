@@ -277,7 +277,14 @@ export function buildSessionCostView(input: SessionCostInput): SessionCostView |
   }
   // Both projections must describe the same durable cut. Never decorate token
   // rows from a newer/older fold, and never price an old Host's cumulative usage.
-  if (COST_TOKEN_KEYS.some(key => totals[key] !== count(usage[key])) || !priced) return undefined
+  //
+  // Compaction summaries are the one legitimate difference: the compactor calls
+  // `ctx.llm.stream()` itself, so the spend is real and this projection folds it,
+  // but it emits none of the `assistant/*` events the harness meter counts.
+  // Subtract exactly that contribution and keep the strict equality, so a stale
+  // or newer fold on either side is still refused.
+  const summary = facts.summaryTokens ?? zeroCostTokens()
+  if (COST_TOKEN_KEYS.some(key => totals[key] - summary[key] !== count(usage[key])) || !priced) return undefined
   const { total, unpricedCacheWriteTokens } = breakdown
   partial ||= unpricedCacheWriteTokens > 0
   free &&= !partial

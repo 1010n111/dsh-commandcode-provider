@@ -29,12 +29,12 @@
 - **推理强度支持**：支持推理强度的模型可在选择器中选择档位。
 - **图片输入**：Vision 模型支持发送图片。
 - **套餐与配额面板**：可选的 Command Code 卡片位于侧边栏底部（Settings 正上方），显示当前服务账号的套餐与 5 小时 / 每周两个配额窗口；点击后在中间栏打开面板，包含计费周期、两个窗口的进度条与重置时间、月度额度消耗，以及已购买 / 赠送余额。面板右上角的 **×** 按钮可随时把中间栏交还给会话（不会切换当前会话）。**默认关闭**——在 **设置 → Command Code → 集成与显示** 中打开「在侧边栏显示额度卡片」即可显示，同一开关也能随时隐藏（隐藏时左侧不渲染任何内容，也不会为其后台刷新用量）。面板文案跟随 Harness 显示语言（中文 / English）。
-- **会话费用估算**：在输入框下方的 token 计数旁及用量对话框中显示估算金额（`≈`），根据持久化历史中每次请求的模型、请求时间和上下文阶梯分别计价。切换模型或稍后查看不会重新定价之前的请求。混合供应商或缺少费率时显示已定价部分的小计（`≥`）；缺少历史事实或完全无法定价时不显示金额。结果基于插件内的价格快照，不等同于供应商账单。同样固定为英文。
+- **会话费用估算**：在输入框下方的 token 计数旁及用量对话框中显示估算金额（`≈`），根据持久化历史中每次请求的模型、请求时间和上下文阶梯分别计价。切换模型或稍后查看不会重新定价之前的请求。混合供应商或缺少费率时显示已定价部分的小计（`≥`）；缺少历史事实或完全无法定价时不显示金额。会话内的自动／手动 compaction（上下文压缩）会额外发一次模型请求，其用量记在 `compaction/summary` 事件上，现在同样计入 Command Code 成本（历史模型分析一并计入）；其他 provider 写的摘要仍不计价。结果基于插件内的价格快照，不等同于供应商账单。同样固定为英文。
 - **联网搜索**：dsh 的 `web_search` 工具由 Command Code Provider API（`/alpha/web-search`）承载，复用聊天同一个 key 与端点，无需单独配置搜索 key 或地址。详见[联网搜索](#联网搜索)。
 
 ## 安装
 
-本版本**只支持 dsh 0.2.0-rc.2（RC，候选发布版）与 dsh 0.2.1-alpha.2（alpha，早期测试版）**。维护策略为每条通道只保留官方最新且经过验证的一个版本；2026-10-11 核对时分别对应 npm 的 `latest` 与 `alpha` 发布标签。对等依赖范围和兼容记录只列这两个精确版本。使用 `0.2.1-alpha.1` 的配置需先升级引擎，再安装本构建：
+本版本**只支持 dsh 0.2.0-rc.2（RC，候选发布版）与 dsh 0.2.1-alpha.3（alpha，早期测试版）**。维护策略为每条通道只保留官方最新且经过验证的一个版本；2026-10-14 核对时分别对应 npm 的 `latest` 与 `alpha` 发布标签。peer（对等依赖）范围和兼容记录只列这两个精确版本。使用 `0.2.1-alpha.2` 的配置需先升级引擎，再安装本构建：
 
 ```sh
 dsh plugin --profile web add @mars-sea/dsh-commandcode-provider@latest
@@ -63,7 +63,7 @@ dsh plugin --profile web add @mars-sea/dsh-commandcode-provider@0.11.15
 用与安装时相同的 tag 更新：
 
 ```sh
-dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@latest     # dsh 0.2.0-rc.2 或 0.2.1-alpha.2
+dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@latest     # dsh 0.2.0-rc.2 或 0.2.1-alpha.3
 dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@0.9.1      # 更早的 dsh（0.5.0 线，不再维护）
 ```
 
@@ -116,7 +116,12 @@ dsh plugin --profile dsh-tui add @mars-sea/dsh-commandcode-provider@0.11.15
 
 **选择模型。** 同一页面把整个模型目录列成勾选框，按套餐档位分组（Go → GOAT → Pro → Provider），免费模型排在最前，不需要手打任何模型 id。默认全部勾选——未设置白名单就等于"显示全部模型"；把不想在选择器里看到的取消勾选即可。选择会以「单模型覆盖」的形式保存在网页端编辑的 `visibleModels` 列表旁边，两个界面可以混用，手写的 `visibleModels` 也照常生效。
 
-也可以在终端外配置 key，以下三种方式按优先级生效：
+也可以在终端外配置 key。凭据解析先命中者生效，顺序如下：
+
+- 组合配置里写死的字面量 `apiKey` 最优先，写了就一直用它。
+- 否则按凭据引用解析（`apiKeyEnv`，默认 `COMMANDCODE_API_KEY`）。在 **Web、桌面端、SDK、ACP 等挂载了凭据服务的 profile** 里由凭据服务统一解析：**0.2.1-alpha.3 起已保存的凭据优先于启动环境变量**，启动环境变量与 `.env` 是其后的回退；0.2.1-alpha.2 及更早的顺序相反，那时环境变量优先。
+- **headless（无头）profile 有意不挂载凭据服务**，因此只有启动环境变量、项目 `.env`、`$DSH_HOME/.env` 生效 —— **在页面上保存过的 key 不会到达 headless 运行**，请为这类运行导出变量或写 `.env`。
+- 最后兜底是官方 CLI 写入的 `~/.commandcode/auth.json`。
 
 ```sh
 export COMMANDCODE_API_KEY="user_..."   # 启动环境变量
@@ -137,7 +142,7 @@ cmd login                               # 写入 ~/.commandcode/auth.json
         cwd: !!js process.cwd()
 ```
 
-**引擎版本要求。** 插件维护两个引擎：**dsh 0.2.0-rc.2** 与 **dsh 0.2.1-alpha.2**。`@deepseek-ai/dsh-*` 对等依赖为 `0.2.0-rc.2 || 0.2.1-alpha.2`；`@deepseek-ai/cordis` 与 `@deepseek-ai/schemastery` 仍使用随引擎配对的范围 `~4.0.4 || ~4.0.5-alpha.1` 与 `~3.18.4 || ~3.18.5-alpha.1`。兼容记录恰好包含两个版本，同通道升级验证后替换旧版，不累加已支持版本、不放行未验证的邻近版本。`npm run test:engine` 与 `npm run test:install` 均逐版本验证。旧引擎安装说明见[安装](#安装)。
+**引擎版本要求。** 插件维护两个引擎：**dsh 0.2.0-rc.2** 与 **dsh 0.2.1-alpha.3**。`@deepseek-ai/dsh-*` 的 peer（对等依赖）为 `0.2.0-rc.2 || 0.2.1-alpha.3`；`@deepseek-ai/cordis` 与 `@deepseek-ai/schemastery` 仍使用随引擎配对的范围 `~4.0.4 || ~4.0.5-alpha.1` 与 `~3.18.4 || ~3.18.5-alpha.1`。兼容记录恰好包含两个版本，同通道升级验证后替换旧版，不累加已支持版本、不放行未验证的邻近版本。`npm run test:engine` 与 `npm run test:install` 均逐版本验证。旧引擎安装说明见[安装](#安装)。
 
 ## 用量面板
 
@@ -232,6 +237,7 @@ Command Code 可以让请求只经由「不留存提示词与回复、也不用�
 ## 注意事项与限制
 
 - **图片输入按模型能力限制**：仅 Vision 模型接受图片，纯文本模型会直接拒绝。
+- **图片尺寸按实际请求上报**：适配器覆盖 `imageRequestTarget`（图片请求目标），把本路由真正发送的目标上报给宿主 —— 长边 1568、编码后上限 1 MiB；宿主的截图类调用方据此估算，拿到的是网关实际收到的尺寸与字节数，而不是归一化原图。
 - 含图片的会话切换到纯文本模型会被 dsh 拒绝——请改选带 *`Image`* 标记的模型，或先移除图片。
 - **图片很多的长会话不会中途失效**：服务端对单次请求体有大小上限（约 50 MB，官方未公开），会话累积大量截图后，原本会在此后每一次请求都失败。现在超出预算的最旧图片会被替换成一段标明附件的"图片已省略"文字，较新的图片照常发送；若请求仍被判为过大，会先以更小的图片预算重试一次，再报错。
 - **不支持 `stop` 序列**：携带它的请求会报错。

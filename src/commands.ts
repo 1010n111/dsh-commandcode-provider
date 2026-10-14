@@ -116,7 +116,7 @@ function renderReport(report: CommandCodeUsageReport, locale: LocaleId, title?: 
     lines.push(
       commandCopy(locale, 'usageHeader'),
       commandCopy(locale, 'requestsLine')
-        .replace('{n}', String(u.completedCount))
+        .replace('{n}', String(u.totalCount))
         .replace('{f}', String(u.failedCount))
         .replace('{r}', successRateText(u.successRate)),
       commandCopy(locale, 'costLine')

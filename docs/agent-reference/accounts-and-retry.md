@@ -7,9 +7,17 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
 
 - **请求账号作用域**：宿主从同一次配置读取取得连接与账号定义，`pool.scope()` 固定本次列表、固定账号和模型规则，并把探测绑定原连接。账号健康与显式探测节流按网关及密钥隔离，同网关共享密钥仍共享标记；引用凭据每次选择重新解析，直接填写的密钥随定义固定。用量、模型套餐筛选和网页搜索同样显式传递捕获网关，展示与请求共用恢复规则。见[《决策记录》第三章](../决策记录.md#三网关状态隔离)。
 
-- **API key resolution order** (in `src/index.ts`): `config.apiKey` → credential ref `apiKeyEnv` (default
-  `COMMANDCODE_API_KEY`, via the dsh credentials seam) → launch environment → official CLI auth file
-  `~/.commandcode/auth.json`. **pi/OMP auth files are intentionally NOT scanned** — keep it that way.
+- **API key resolution order** (in `src/index.ts`) 共三层：`config.apiKey`（直接填写的密钥，含
+  `Config.accounts[].apiKey`）→ 凭据引用 `apiKeyEnv`（默认 `COMMANDCODE_API_KEY`，经 dsh 凭据服务
+  （credentials seam）解析，启动环境已并入这一层、不再是独立一层）→ 官方 CLI 授权文件
+  `~/.commandcode/auth.json`（仅默认账号兜底）。**pi/OMP auth files are intentionally NOT scanned** — keep it that way.
+  **alpha.3 起凭据服务内部的层序（layer order）反转为「托管存储（stored credential）→ 继承环境 →
+  项目 `.env` → `$DSH_HOME/.env`」**（alpha.2 相反，继承的进程环境优先于
+  `$DSH_HOME/.credentials.yaml`）：存放于托管存储的 key 现在优先于环境变量，且 `describe()` 恒返回
+  `writable: true`，写入不再因环境变量遮蔽而被拒。**headless（无头）profile 有意不挂载
+  `credentials`、`authorization`、`deepseek-account` 三行**，插件因此回落到启动环境快照
+  （process → 项目 `.env` → `$DSH_HOME/.env`）：只存在于托管存储里的 key 不会到达 headless（无头）
+  一次性任务。设置页侧的同一事实见 [client and settings](client-and-settings.md)。
 - **Multi-account rotation** (`src/accounts.ts` + the adapter's connect loop): the top-level key forms the
   `default` slot; `Config.accounts` (`[{ label, apiKeyEnv | apiKey }]`) adds more, in rotation order.
   Rotation is **passive**: a key is marked only on a real pre-stream rejection (429 → `unknown`/`cooldown`
@@ -173,7 +181,7 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   the boot-time `searchProvider: commandcode` cordis patch. The deprecated
   `selectCommandCodeSearchProvider()` (which forced the factory default on disable) was DELETED with the
   rest of the generation bridge — `applyCommandCodeSearchSelection()` is the only entry point. `dsh-web` is
-  a peer over every declared engine (`0.2.0-rc.2 || 0.2.1-alpha.1 || 0.2.1-alpha.2`, kept external in tsdown); `tests/web-search.test.ts` pins the wire body, header,
+  a peer over every declared engine (`0.2.0-rc.2 || 0.2.1-alpha.3`, kept external in tsdown); `tests/web-search.test.ts` pins the wire body, header,
   result mapping, the `WEB_ABORTED`/`WEB_PROVIDER_CREDENTIAL_MISSING`/`WEB_PROVIDER_ERROR` taxonomy, and the
   selection-field handoff (sibling-pin restore, re-enable memory, toggle-off through the real host `apply()`
   + `loader/volatile-update`).

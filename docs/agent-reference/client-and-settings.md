@@ -12,6 +12,7 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
 - **设置写入所有权**：`src/client/settings.ts` 保留输入校验、草稿版本和投影，`src/client/settings-write.ts` 持有保存与即时账号操作的具名意图、统一队列、目标检查、批量配置与凭据确认。普通字段和可见模型的两个字段一次提交；配置确认后才发密钥。相关字段在排队期间变化整批冲突，无关变化使用最新版本；作用域明确返回接受、冲突、未确认或取消，重读相同值不能冒充本次接受。
 - **默认目标保护与部分完成**：点击时冻结默认凭据引用，调用前变化停止，调用后变化记录原引用实际结果并提示核对；两者都保留密钥草稿，不自动写新引用或补偿删除。已确认配置仅清理本次旧草稿，等待期间的新输入、重置和模型选择保留。设置页和模型卡共用中文阶段提示，用量刷新依本次真实确认结果。
 - **凭据事实与销毁**：凭据返回成功即为写入确认，描述仅提供存在性；描述失败或缺失保留最后确认事实，首次尚无确认时明确显示状态未知，重试入口只读状态。按引用及读取世代屏蔽迟到描述。普通切页不关闭共享控制器；插件销毁停止未开始任务，已发调用自然收束，不进入后续阶段。
+- **凭据写入不再被环境变量遮蔽（alpha.3）**：凭据服务的 `describe()` 恒返回 `writable: true`，写入不再因环境变量遮蔽而被拒，服务内部的层序同步反转为「托管存储 → 继承环境 → 项目 `.env` → `$DSH_HOME/.env`」。**headless（无头）profile 有意不挂载 `credentials`／`authorization`／`deepseek-account` 三行**，没有凭据服务可读写，一次性任务只认启动环境与 `.env`。密钥解析侧见[账号与重试](accounts-and-retry.md)。
 - **自动轮换**：取消固定账号时基础层仍固定账号，则显式写 `activeAccount: ''`；仅清除用户覆盖会重新露出基础层固定账号，不等于自动轮换。普通字段重置仍恢复继承。
 - **运行中请求的配置生效**：已确认的网关、账号列表、固定账号和模型规则用于新调用，已经开始的适配器调用继续使用自己的快照。引用凭据每次账号选择仍重新解析；清除后可能按既有优先级使用默认账号的授权文件兜底，不撤回已发请求或当前尝试已取得的密钥。
 - **账户移除与清理**：`accounts`、`modelAccountRules`、固定账户及 `credentialCleanupRefs` 在一次带版本检查的 `remote.settings.mutate` 中提交，再清理凭据。失败队列持久化，页面刷新后仍显示重试；重新引用、继承配置和默认密钥受保护。无法确认凭据事实时保留队列。宿主配置与凭据服务并无共同事务，不能承诺任意外部并发重建与凭据删除跨服务原子化。
@@ -23,8 +24,8 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   `react-dom`, `react-dom/client`, `@deepseek-ai/cordis`,
   `@deepseek-ai/dsh-client-store`, `@deepseek-ai/dsh-client-ui-slots`,
   `@deepseek-ai/dsh-client-ui-primitives` and
-  `@deepseek-ai/dsh-client-ui-dockkit` (re-read out of the 0.2.1-alpha.2 engine;
-  unchanged from 0.2.1-alpha.1, 0.2.0-rc.2 and 0.1.7-rc.2). Any other import
+  `@deepseek-ai/dsh-client-ui-dockkit` (re-read out of the 0.2.1-alpha.3 engine;
+  unchanged from 0.2.1-alpha.2, 0.2.1-alpha.1, 0.2.0-rc.2 and 0.1.7-rc.2). Any other import
   must be type-only or bundled — `dsh-client-web-react`, `dsh-client-schema-form`
   and `dsh-client-ui-attachment` are NOT seeded and would fail the client
   `require()` audit in `scripts/verify-engine-load.mjs`. This client keeps the
@@ -253,3 +254,4 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   显示全部会选中已加载的目录模型；目录失败不清空已存选择。
 - **字号与校验说明**：页面及面板辅助文字至少 12px；重试次数提示与实际 0～50 次限制一致。
 - **模型分析第二版**：历史与试算仍读取同一份既有报告；模型名称复用试算目录，成本比例只比较已知小计，零小计或无计价样本不生成占比。页签、展开与模型筛选不增加远端读取，刷新保留草稿并使用已提交范围。窄面板按实际可用宽度恢复指标标签，未知数据不补零。统计口径及合成浏览器验证边界见[模型分析说明](../模型成本与性能分析.md)和[第二版设计](../模型分析第二版设计.md)。
+- **压缩摘要计入会话费用读数**：`compaction/summary`（上下文压缩摘要）事件也会产生真实花费——压缩器自己调一次 `ctx.llm.stream()`，但不落在任何 turn/step 上，也不产生 `request/header`。费用投影把它折进分组，并用 `summaryTokens` 记录「已折进分组、但不属于宿主 `tokenUsage`」的那部分，对账等式因此变为「分组合计 − `summaryTokens` === 宿主 `tokenUsage`」；历史分析侧同样单独登记一条请求事实。详见[模型分析说明](../模型成本与性能分析.md)。

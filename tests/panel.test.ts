@@ -213,6 +213,30 @@ test('the accessible footer title carries the visible figures', () => {
   assert.equal(view.planName, 'Pro')
 })
 
+test('官方汇总显示请求总数，仅在汇总与订阅起点一致时标明完整账期', () => {
+  const start = Date.parse('2026-09-19T10:15:00Z')
+  const end = Date.parse('2026-10-19T10:15:00Z')
+  const report: CommandCodeUsageReport = {
+    failures: [],
+    plan: { planId: 'individual-pro', name: 'Pro', status: 'active', monthlyCredits: 60, currentPeriodStart: start, currentPeriodEnd: end },
+    usage: { totalCount: 12, completedCount: 9, failedCount: 2, totalCost: 1.32, totalCredits: 1.4, totalTokensIn: 1000, totalTokensOut: 200, successRate: 75, periodBasis: 'billing-period', periodStart: start },
+  }
+  const view = () => buildPanelView({ usage: usage({ report: { accounts: [entry({ report })] } }), apiKeyConfigured: true, t: key => PANEL_COPY_ZH[key] }).selected!
+  assert.equal(view().stats.find(stat => stat.label === 'requests')?.value, '12')
+  assert.equal(view().stats.find(stat => stat.label === 'requests')?.sub, '9 成功 / 2 失败')
+  assert.equal(view().usagePeriod, `官方账期用量 ${new Date(start).toLocaleDateString()} – ${new Date(end).toLocaleDateString()}`)
+  report.usage!.periodStart = start + 1000
+  assert.equal(view().usagePeriod, '官方用量汇总，统计周期未确认')
+  delete report.usage!.periodStart
+  assert.equal(view().usagePeriod, '官方用量汇总，统计周期未确认')
+  report.usage!.periodStart = start
+  delete report.plan!.currentPeriodStart
+  assert.equal(view().usagePeriod, '官方用量汇总，统计周期未确认')
+  report.plan!.currentPeriodStart = start
+  report.plan!.currentPeriodEnd = start
+  assert.equal(view().usagePeriod, '官方用量汇总，统计周期未确认')
+})
+
 test('monthly consumption is the CLI\'s limit-minus-remaining derivation', () => {
   // The fixture makes the two halves DIFFERENT on purpose: the plan publishes a
   // 30-credit limit while the billing endpoint reports 8.68 left. A fixture

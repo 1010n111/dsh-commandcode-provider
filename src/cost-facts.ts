@@ -20,6 +20,23 @@ export interface CostUsageGroup {
 export interface SessionCostFacts {
   pricingKey: number
   groups: CostUsageGroup[]
+  /**
+   * Token buckets contributed by summarization calls, already folded into
+   * `groups` but deliberately NOT part of the harness's own `tokenUsage`
+   * projection.
+   *
+   * Compaction issues its own `ctx.llm.stream()` call, so its cost is real
+   * spend, but it produces no `assistant/message` or `assistant/attempt` event
+   * — the only two the harness meter folds (see `token-meter/src/usage-projection.ts`).
+   * The summary therefore lands in this projection alone, and the composer
+   * readout subtracts this field before asserting that both projections
+   * describe the same durable cut. Without the split the equality check fails
+   * and the whole readout disappears whenever a session compacts.
+   *
+   * Always present: `parseState` backfills it to zero for state written before
+   * this field existed.
+   */
+  summaryTokens: CostTokens
 }
 
 export const zeroCostTokens = (): CostTokens => ({ uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 })

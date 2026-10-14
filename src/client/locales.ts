@@ -98,6 +98,9 @@ export type SettingsCommandCodeKey =
   | 'usageError'
   | 'usageRequests'
   | 'usageFailed'
+  | 'usageCompleted'
+  | 'usageBillingPeriod'
+  | 'usagePeriodUnknown'
   | 'usageSuccessRate'
   | 'usageCost'
   | 'usageTokens'
@@ -280,6 +283,9 @@ export const zh: Record<SettingsCommandCodeKey, string> = {
   usageFailed: '失败',
   usageSuccessRate: '成功率',
   usageCost: '花费',
+  usageCompleted: '成功',
+  usageBillingPeriod: '官方账期用量',
+  usagePeriodUnknown: '官方用量汇总，统计周期未确认',
   usageTokens: 'Token',
   usageTokensIn: '入',
   usageTokensOut: '出',
@@ -465,6 +471,9 @@ export const en: Record<SettingsCommandCodeKey, string> = {
   usageFailed: 'failed',
   usageSuccessRate: 'Success rate',
   usageCost: 'Spend',
+  usageCompleted: 'Completed',
+  usageBillingPeriod: 'Official billing-period usage',
+  usagePeriodUnknown: '官方用量汇总，统计周期未确认',
   usageTokens: 'Tokens',
   usageTokensIn: 'in',
   usageTokensOut: 'out',

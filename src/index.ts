@@ -458,12 +458,18 @@ export function apply(ctx: Context, config: Config): void {
   const resolveRef = async (ref: ReturnType<typeof credentialRef>): Promise<string | undefined> => {
     const credentials = ctx.get('credentials')
     if (credentials !== undefined) {
-      // The credentials seam layers the process environment, the
-      // provider-managed store, and `.env` files itself — a miss here is
-      // genuinely unconfigured, not "not in the store".
+      // The seam owns the layer order, and that order is engine-dependent: the
+      // provider-managed store wins over the inherited environment from
+      // 0.2.1-alpha.3 on, where the environment used to win. This call does not
+      // care which — it asks for the resolved value — but a miss here is
+      // genuinely unconfigured, not "absent from the store".
       const hit = await credentials.resolve(ref)
       return hit?.value
     }
+    // No service means the headless profile, which disables the credentials
+    // line on purpose: only the launch environment (process, project `.env`,
+    // `$DSH_HOME/.env`) is left, so a key saved only in the product store is
+    // deliberately invisible to a one-shot run.
     const ambient = launchEnvironmentOf(ctx).get(ref)
     return ambient !== undefined && ambient.value.length > 0 ? ambient.value : undefined
   }
@@ -502,7 +508,9 @@ export function apply(ctx: Context, config: Config): void {
       `llm-commandcode: no API key for provider route "${PROVIDER}"; store ${ref} through the`
       + ' credentials service (the web Models page writes it), export it in the launching'
       + ' environment, set config.apiKey, or run `command-code login` to write'
-      + ' ~/.commandcode/auth.json',
+      + ' ~/.commandcode/auth.json. The headless profile mounts no credentials service, so a'
+      + ' key saved only in the store never reaches it: export the variable or put it in a'
+      + ' .env file for those runs.',
       'MISSING_CREDENTIAL',
     )
   }

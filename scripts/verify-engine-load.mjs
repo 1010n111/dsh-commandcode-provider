@@ -606,6 +606,40 @@ async function checkToolHistory(staged, engineModules) {
   process.stdout.write(`tool history checked with engine result role: ${messages[2].role}\n`)
 }
 
+/**
+ * alpha.3 起 Gateway 的 `InvokeRemoteRequest.peer` 由可选变必需：每个载体与进程内
+ * 调用方都要显式指名自己代表谁，无法再缺省为「按 operator 处理」。
+ *
+ * alpha.2 的 `dsh-client-connection` 只有 `OperatorPeer`、没有 `Peer`，因此这里按引擎
+ * 能力探测：新款返回一个 owner Peer，旧款返回 `undefined`，调用处据此决定要不要带
+ * `peer` 参数。这样同一套探针能在两个已声明引擎上跑，不必按版本分叉。
+ * @param ctx - 本检查自建的 Context，Peer 挂在它的 root 下。
+ * @param load - 从被检引擎目录解析模块的加载器。
+ * @returns 该引擎可用的 owner Peer；旧款引擎返回 undefined。
+ */
+async function engineOwnerPeer(ctx, load) {
+  try {
+    const { Peer } = await load(`${SCOPE}/dsh-client-connection`)
+    return typeof Peer === 'function' ? new Peer(ctx.root, { principal: { kind: 'owner' } }) : undefined
+  } catch { return undefined }
+}
+
+/**
+ * alpha.3 起 `TypertGatewayService` 的 `static inject` 多出 `remoteAccess`：缺这个服务
+ * 时 cordis 会让网关插件停在 INACTIVE，`ctx.get('typertGateway')` 直接是 undefined，
+ * 探针会以一句无关的 TypeError 失败。
+ *
+ * `@deepseek-ai/dsh-api-remote-access` 是 alpha.3 新引入的包，alpha.2 上不存在；先探测
+ * 包能不能解析，存在才注册。旧引擎没有这个包也没有这项依赖，跳过即可。
+ * @param ctx - 本检查自建的 Context。
+ * @param load - 从被检引擎目录解析模块的加载器。
+ */
+async function pluginEngineRemoteAccess(ctx, load) {
+  let mod
+  try { mod = await load(`${SCOPE}/dsh-api-remote-access`) } catch { return }
+  await ctx.plugin(mod.default, {})
+}
+
 /** 用真实宿主注册表与网关验证发布包的单页观察流；仅使用内存设置和合成凭据。 */
 async function checkEnrollmentStream(staged, engineModules) {
   if (staged === undefined) return
@@ -616,6 +650,7 @@ async function checkEnrollmentStream(staged, engineModules) {
     import(pathToFileURL(join(staged, 'lib', 'index.js')).href),
   ])
   const ctx = new Context()
+  const peer = await engineOwnerPeer(ctx, load)
   const config = { apiKeyEnv: 'ENROLLMENT_PROBE' }
   let revision = 1
   let releaseWrite
@@ -650,15 +685,16 @@ async function checkEnrollmentStream(staged, engineModules) {
     new ProbeLlm(ctx)
     new ProbeSettings(ctx)
     new ProbeCredentials(ctx)
+    await pluginEngineRemoteAccess(ctx, load)
     await ctx.plugin(TypertRegistry)
     await ctx.plugin(TypertGatewayService, {})
     await ctx.plugin({ inject: plugin.inject, apply(c) { plugin.apply(c, config) } })
     const gateway = ctx.get('typertGateway')
     const control = new AbortController()
-    const stream = await gateway.stream({ namespace: 'commandcode', method: 'enrollmentWatch', args: { input: { pageId } }, signal: control.signal })
+    const stream = await gateway.stream({ namespace: 'commandcode', method: 'enrollmentWatch', args: { input: { pageId } }, ...peer === undefined ? {} : { peer }, signal: control.signal })
     const iterator = stream[Symbol.asyncIterator]()
     assert.equal((await iterator.next()).value, true)
-    const state = await gateway.invoke({ namespace: 'commandcode', method: 'enrollmentBegin', args: { input: { id, pageId, mode: 'manual', label: '合成账号', automaticName: false, key: 'synthetic-key' } } })
+    const state = await gateway.invoke({ namespace: 'commandcode', method: 'enrollmentBegin', args: { input: { id, pageId, mode: 'manual', label: '合成账号', automaticName: false, key: 'synthetic-key' } }, ...peer === undefined ? {} : { peer } })
     assert.equal(state.id, id)
     for (let n = 0; n < 100 && !started; n++) await new Promise((resolve) => setTimeout(resolve, 2))
     assert.equal(started, true)
@@ -686,6 +722,7 @@ async function checkAnalyticsHistory(staged, engineModules) {
     import(pathToFileURL(join(staged, 'lib', 'index.js')).href),
   ])
   const ctx = new Context(), savedFetch = globalThis.fetch, stored = new Map()
+  const peer = await engineOwnerPeer(ctx, load)
   globalThis.fetch = async () => { throw new Error('合成统计检查不访问网络') }
   class ProbeLlm extends Service {
     constructor(c) { super(c, 'llm') }
@@ -710,6 +747,7 @@ async function checkAnalyticsHistory(staged, engineModules) {
   try {
     new ProbeLlm(ctx)
     new ReadStorage(ctx)
+    await pluginEngineRemoteAccess(ctx, load)
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionQuery)
     await ctx.plugin(TypertRegistry)
@@ -734,7 +772,7 @@ async function checkAnalyticsHistory(staged, engineModules) {
     appendAttempt(child, 2, 200)
     stored.set(child.id, await query.readSession(child.id))
     detachChild()
-    const result = await gateway.invoke({ namespace: 'commandcode', method: 'analytics', args: { query: { mode: 'recent', limit: 20 } } })
+    const result = await gateway.invoke({ namespace: 'commandcode', method: 'analytics', args: { query: { mode: 'recent', limit: 20 } }, ...peer === undefined ? {} : { peer } })
     assert.equal(result.status, 'ready')
     assert.equal(result.scannedSessions, 2)
     assert.equal(result.unreadableSessions, 0)
@@ -744,7 +782,7 @@ async function checkAnalyticsHistory(staged, engineModules) {
     assert.equal(result.totals.tokens.uncachedInputTokens, 300)
     assert.ok(Array.isArray(result.scenarios))
     assert.equal(JSON.stringify(result).includes('analytics-parent'), false)
-    await assert.rejects(gateway.invoke({ namespace: 'commandcode', method: 'analytics', args: { query: { mode: 'recent', limit: 101 } } }))
+    await assert.rejects(gateway.invoke({ namespace: 'commandcode', method: 'analytics', args: { query: { mode: 'recent', limit: 101 } }, ...peer === undefined ? {} : { peer } }))
     process.stdout.write('真实历史服务与 Gateway 已验证关闭会话、分支去重、计价和严格查询，无账号网络请求\n')
   } catch (error) { fail(`模型分析历史契约：${error.message}`) }
   finally { globalThis.fetch = savedFetch; await ctx.fiber.dispose() }
@@ -893,11 +931,11 @@ async function checkGatewayRequestFacts(staged, engineModules) {
       calls.push({ url, key })
       if (url.endsWith('/provider/v1/chat/completions')) {
         if (!rejected) { rejected = true; return new Response('rate limited', { status: 429 }) }
-        if (rejectExtraForReport && url.startsWith(b) && key === 'Bearer synthetic-extra') {
+        if (rejectExtraForReport && new URL(url).origin === b && key === 'Bearer synthetic-extra') {
           rejectExtraForReport = false
           return new Response('rate limited', { status: 429 })
         }
-        if (rejectRotation && url.startsWith(d) && key === 'Bearer synthetic-extra') {
+        if (rejectRotation && new URL(url).origin === d && key === 'Bearer synthetic-extra') {
           rejectRotation = false
           armed = pending
           return new Response('invalid credential', { status: 401 })
@@ -943,7 +981,7 @@ async function checkGatewayRequestFacts(staged, engineModules) {
     assert.equal(report.accounts.find(account => account.id === 'GATEWAY_FACTS_EXTRA').active, true)
     assert.equal(report.accounts.find(account => account.id === 'GATEWAY_FACTS_EXTRA').mark, '', '用量报告使用共享恢复后的标记')
     assert.equal(calls.length > beforeReport, true)
-    assert.equal(calls.slice(beforeReport).every(call => call.url.startsWith(b)), true, '旧报告不得读取丙网关的用量')
+    assert.equal(calls.slice(beforeReport).every(call => new URL(call.url).origin === b), true, '旧报告不得读取丙网关的用量')
     change({ apiBase: d, accounts: [{ apiKeyEnv: 'GATEWAY_FACTS_EXTRA', label: '合成额外账号' }], activeAccount: 'GATEWAY_FACTS_EXTRA' })
     const beforeRotation = calls.length
     pending = gate()

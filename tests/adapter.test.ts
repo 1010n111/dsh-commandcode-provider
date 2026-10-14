@@ -13,6 +13,8 @@ import { tmpdir } from 'node:os'
 import { rmSync } from 'node:fs'
 import { brotliCompressSync } from 'node:zlib'
 
+import { requestImageTarget } from '../src/image-request.ts'
+
 import {
   CommandCodeAdapter,
   projectSlugFromPath,
@@ -1972,6 +1974,19 @@ test('imageRequestPricing() prices a retained image at its request target (C3)',
   ]).length, 2)
 })
 
+test('imageRequestTarget() reports the request target, not the normalized original (C3)', () => {
+  const adapter = makeAdapter()
+  const ref = { ...sizedImageRef(0, pngBytes.length), width: 2880, height: 1800 }
+  // 路由把每张请求图重新编码到 1568 长边 + 1 MiB 上限，基类默认却回答归一化原图
+  //（2880x1800 与原始字节数）。宿主的截图调用方走 ctx.llm.imageRequestTarget()，
+  // 所以要暴露请求侧真正使用的目标，且必须与请求侧逐字一致。
+  assert.deepEqual(adapter.imageRequestTarget('commandcode', 'claude-sonnet-5', ref), requestImageTarget(ref))
+  const target = adapter.imageRequestTarget('commandcode', 'claude-sonnet-5', ref)
+  assert.equal(target.width, 1568)
+  assert.equal(target.height, 980)
+  assert.equal(target.maxBytes, 1024 * 1024)
+})
+
 test('imageRequestPricing() prices an offloaded occurrence as its placeholder (C3)', () => {
   const pricing = makeAdapter().imageRequestPricing('commandcode', 'claude-sonnet-5')!
   const ref = sizedImageRef(0, pngBytes.length)
@@ -3678,7 +3693,8 @@ test('协议回退缓存不会把旧网关的同一密钥带到新网关', async
     fetchImpl: (async (input: RequestInfo | URL) => {
       const url = String(input)
       paths.push(url)
-      if (url.startsWith('https://first.invalid') && url.endsWith('/provider/v1/chat/completions')) {
+      const target = new URL(url)
+      if (target.origin === 'https://first.invalid' && target.pathname === '/provider/v1/chat/completions') {
         return new Response('{"error":{"code":"upgrade_required"}}', { status: 403 })
       }
       return new Response(url.endsWith('/alpha/generate')
@@ -3689,7 +3705,8 @@ test('协议回退缓存不会把旧网关的同一密钥带到新网关', async
   const options = { provider: 'commandcode', model: 'm', messages: [userMessage('hi')] }
   await collect(adapter.stream(options))
   await collect(adapter.stream(options))
-  apiBase = 'https://second.invalid'
+  // 相同文本前缀不代表同一来源；此网关不得继承 first 的 Go 套餐回退。
+  apiBase = 'https://first.invalid.review.invalid'
   await collect(adapter.stream(options))
   assert.deepEqual(paths.map((url) => new URL(url).pathname), [
     '/provider/v1/chat/completions', '/alpha/generate', '/alpha/generate', '/provider/v1/chat/completions',
@@ -6349,11 +6366,185 @@ test('通用 HTTP 错误以中文说明和错误码展示，不回显上游正�
       assert.equal(actual.code, 'PROVIDER_HTTP_ERROR')
       assert.equal(actual.failure?.status, 400)
       assert.match(actual.message, /请求失败（HTTP 400）/)
-      assert.match(actual.message, /（validation_error）/)
+      assert.match(actual.message, /错误码：validation_error/)
       assert.doesNotMatch(actual.message, /private prompt marker|upstream reflected/)
       return true
     },
   )
+})
+
+for (const protocol of ['cli', 'openai', 'messages'] as const) {
+  test(`${protocol}：HTTP 错误分别保留有界代码和类型，拒绝正文及非法标识`, async () => {
+    const cases = [
+      { fields: { type: 'invalid_request_error' }, shown: ['错误类型：invalid_request_error'] },
+      { fields: { code: 'validation_error', type: 'invalid_request_error' }, shown: ['错误码：validation_error', '错误类型：invalid_request_error'] },
+      { fields: { code: 'private code with spaces', type: 'permission_error' }, shown: ['错误类型：permission_error'] },
+      { fields: { code: 'a'.repeat(80), type: 'b'.repeat(81) }, shown: ['错误码：' + 'a'.repeat(80)] },
+      { fields: { code: '<script>private</script>', type: 'private\nmarker' }, shown: [] },
+      { fields: { type: '含私密输入' }, shown: [] },
+    ]
+    for (const [index, { fields, shown }] of cases.entries()) {
+      const paths: string[] = []
+      const adapter = makeAdapter({
+        options: () => ({ ...OPENAI_OPTIONS(), protocol: protocol === 'messages' ? 'auto' : protocol, modelsCachePath: '' }),
+        fetchImpl: (async (input) => {
+          paths.push(new URL(String(input)).pathname)
+          // 同时覆盖嵌套错误和根级错误；响应请求号走现有持久化失败契约。
+          const payload = { ...fields, message: 'private prompt marker' }
+          return new Response(JSON.stringify(index % 2 === 0 ? { error: payload } : payload), {
+            status: 400, headers: { 'x-request-id': 'synthetic-diagnostic-request', 'set-cookie': 'private cookie' },
+          })
+        }) as typeof fetch,
+      })
+      await assert.rejects(collect(adapter.stream({ provider: 'commandcode', model: protocol === 'messages' ? 'claude-haiku-5-5' : 'm', messages: [userMessage('hi')] })), (error: unknown) => {
+        const actual = error as LlmError
+        assert.equal(actual.code, 'PROVIDER_HTTP_ERROR')
+        assert.equal(actual.failure.status, 400)
+        assert.equal(actual.failure.requestId, 'synthetic-diagnostic-request')
+        for (const value of shown) assert.ok(actual.message.includes(value))
+        assert.equal(actual.message.includes('错误码：'), shown.some((value) => value.startsWith('错误码：')))
+        assert.equal(actual.message.includes('错误类型：'), shown.some((value) => value.startsWith('错误类型：')))
+        assert.doesNotMatch(actual.message, /private|含私密输入|<script>|b{81}/u)
+        return true
+      })
+      assert.deepEqual(paths, [protocol === 'cli' ? '/alpha/generate' : protocol === 'messages' ? '/provider/v1/messages' : '/provider/v1/chat/completions'])
+    }
+  })
+}
+
+test('Messages 的权限拒绝回退 CLI 直连，CLI 成功后正常收流', async () => {
+  const paths: string[] = []
+  const adapter = makeAdapter({
+    options: () => ({ ...OPENAI_OPTIONS(), protocol: 'auto', apiBase: 'https://permission-fallback.invalid', modelsCachePath: '' }),
+    fetchImpl: (async (input) => {
+      const path = new URL(String(input)).pathname
+      paths.push(path)
+      // issue #84 的响应形态：Messages 端点回 Anthropic 风格的 permission_error。
+      return path === '/provider/v1/messages'
+        ? new Response(JSON.stringify({ error: { type: 'permission_error', message: 'Authentication failed. Please check your credentials.' } }), { status: 403 })
+        : new Response(FINISH_STREAM)
+    }) as typeof fetch,
+  })
+  const chunks = await collect(adapter.stream({ provider: 'commandcode', model: 'claude-haiku-5-5', messages: [userMessage('hi')] }))
+  assert.ok(chunks.length > 0)
+  assert.deepEqual(paths, ['/provider/v1/messages', '/alpha/generate'])
+})
+
+test('回退后 CLI 仍失败：以 CLI 结果为主并保留反代拒绝标识', async () => {
+  const paths: string[] = []
+  const adapter = makeAdapter({
+    options: () => ({ ...OPENAI_OPTIONS(), protocol: 'auto', apiBase: 'https://permission-fallback-fail.invalid', modelsCachePath: '' }),
+    fetchImpl: (async (input) => {
+      const path = new URL(String(input)).pathname
+      paths.push(path)
+      return path === '/provider/v1/messages'
+        ? new Response(JSON.stringify({ error: { type: 'permission_error', message: 'Authentication failed. Please check your credentials.' } }), { status: 403 })
+        : new Response(JSON.stringify({ error: { type: 'permission_error', message: 'cli still refused' } }), { status: 403 })
+    }) as typeof fetch,
+  })
+  await assert.rejects(collect(adapter.stream({ provider: 'commandcode', model: 'claude-haiku-5-5', messages: [userMessage('hi')] })), (error: unknown) => {
+    const actual = error as LlmError
+    assert.equal(actual.code, 'PROVIDER_HTTP_ERROR')
+    assert.equal(actual.failure.status, 403)
+    // 主句描述第二段链路（CLI），并附上反代侧先前的拒绝标识；两段正文都不回显。
+    assert.match(actual.message, /错误类型：permission_error/u)
+    assert.match(actual.message, /此前 Messages 接口以 permission_error 拒绝，已回退 CLI 直连，仍未成功/u)
+    assert.doesNotMatch(actual.message, /Authentication failed|cli still refused/u)
+    return true
+  })
+  assert.deepEqual(paths, ['/provider/v1/messages', '/alpha/generate'])
+})
+
+test('Messages 端点的其它 403 拒绝不回退 CLI', async () => {
+  const paths: string[] = []
+  const adapter = makeAdapter({
+    options: () => ({ ...OPENAI_OPTIONS(), protocol: 'auto', apiBase: 'https://permission-other.invalid', modelsCachePath: '' }),
+    fetchImpl: (async (input) => {
+      paths.push(new URL(String(input)).pathname)
+      return new Response(JSON.stringify({ error: { code: 'MODEL_NOT_IN_PLAN', type: 'invalid_request_error', message: 'model not in plan' } }), { status: 403 })
+    }) as typeof fetch,
+  })
+  await assert.rejects(collect(adapter.stream({ provider: 'commandcode', model: 'claude-haiku-5-5', messages: [userMessage('hi')] })), (error: unknown) => {
+    const actual = error as LlmError
+    assert.doesNotMatch(actual.message, /已回退 CLI 直连/u)
+    return true
+  })
+  assert.deepEqual(paths, ['/provider/v1/messages'])
+})
+
+test('Chat Completions 的 permission_error 不回退 CLI', async () => {
+  const paths: string[] = []
+  const adapter = makeAdapter({
+    options: () => ({ ...OPENAI_OPTIONS(), protocol: 'openai', apiBase: 'https://permission-openai.invalid', modelsCachePath: '' }),
+    fetchImpl: (async (input) => {
+      paths.push(new URL(String(input)).pathname)
+      return new Response(JSON.stringify({ error: { type: 'permission_error', message: 'refused' } }), { status: 403 })
+    }) as typeof fetch,
+  })
+  await assert.rejects(collect(adapter.stream({ provider: 'commandcode', model: 'm', messages: [userMessage('hi')] })), (error: unknown) => {
+    const actual = error as LlmError
+    assert.match(actual.message, /错误类型：permission_error/u)
+    assert.doesNotMatch(actual.message, /已回退 CLI 直连/u)
+    return true
+  })
+  assert.deepEqual(paths, ['/provider/v1/chat/completions'])
+})
+
+test('Messages 的权限回退不写入协议缓存，也不影响同账号其它模型的路由', async () => {
+  const paths: string[] = []
+  const adapter = makeAdapter({
+    options: () => ({ ...OPENAI_OPTIONS(), protocol: 'auto', apiBase: 'https://permission-scope.invalid', modelsCachePath: '' }),
+    fetchImpl: (async (input) => {
+      const path = new URL(String(input)).pathname
+      paths.push(path)
+      if (path === '/provider/v1/messages') {
+        return new Response(JSON.stringify({ error: { type: 'permission_error' } }), { status: 403 })
+      }
+      return new Response(path === '/alpha/generate'
+        ? FINISH_STREAM
+        : 'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
+    }) as typeof fetch,
+  })
+  const options = { provider: 'commandcode', model: 'claude-haiku-5-5', messages: [userMessage('hi')] }
+  await collect(adapter.stream(options))
+  // 同一条 Claude 请求第二次仍然先试 Messages：单条链路的拒绝不能代表整个网关。
+  await collect(adapter.stream(options))
+  // 同账号的 GPT 路由照旧走 Provider API，没有被 Claude 的拒绝拖走。
+  await collect(adapter.stream({ provider: 'commandcode', model: 'gpt-5.6-sol', messages: [userMessage('hi')] }))
+  assert.deepEqual(paths, [
+    '/provider/v1/messages', '/alpha/generate',
+    '/provider/v1/messages', '/alpha/generate',
+    '/provider/v1/chat/completions',
+  ])
+})
+
+test('账号轮换后的错误不继承上一账号的权限拒绝注记', async () => {
+  const paths: string[] = []
+  const adapter = makeAdapter({
+    options: () => ({ ...OPENAI_OPTIONS(), protocol: 'auto', apiBase: 'https://permission-rotation.invalid', modelsCachePath: '' }),
+    resolveApiKey: async () => 'key-1',
+    rotateApiKey: async () => 'key-2',
+    fetchImpl: (async (input, init) => {
+      const path = new URL(String(input)).pathname
+      const headers = init?.headers as Record<string, string> | undefined
+      paths.push(`${path}:${(headers?.Authorization ?? '').slice(-5)}`)
+      if (path === '/provider/v1/messages') {
+        // 第一个账号被权限拒绝，第二个账号是另一种套餐限制：后者不是回退条件。
+        return new Response(JSON.stringify(headers?.Authorization?.endsWith('key-1') === true
+          ? { error: { type: 'permission_error' } }
+          : { error: { code: 'MODEL_NOT_IN_PLAN', type: 'invalid_request_error' } }), { status: 403 })
+      }
+      return new Response('invalid credential', { status: 401 })
+    }) as typeof fetch,
+  })
+  await assert.rejects(collect(adapter.stream({ provider: 'commandcode', model: 'claude-haiku-5-5', messages: [userMessage('hi')] })), (error: unknown) => {
+    const actual = error as LlmError
+    // 换账号后经历的是 MODEL_NOT_IN_PLAN，文案只能描述当前账号的链路。
+    assert.match(actual.message, /错误码：MODEL_NOT_IN_PLAN/u)
+    assert.doesNotMatch(actual.message, /已回退 CLI 直连/u)
+    return true
+  })
+  assert.deepEqual(paths, ['/provider/v1/messages:key-1', '/alpha/generate:key-1', '/provider/v1/messages:key-2'])
 })
 
 test('stream() does not blame an account for a 5xx that carries no window-limit code', async () => {
@@ -6707,6 +6898,94 @@ test('stream() drops a Retry-After above the policy cap so normal mode keeps ret
 // ---------------------------------------------------------------------------
 // getUsage(): total-failure classification (the settings card's blocked banner)
 // ---------------------------------------------------------------------------
+
+test('getUsage() 固定组织范围并等订阅账期，再读取官方汇总', async () => {
+  const start = '2026-09-30T16:00:00.000Z'
+  const end = '2026-10-31T16:00:00.000Z'
+  const orgId = 'org /+&测试'
+  const calls: URL[] = []
+  let subscriptionRead = false
+  const adapter = makeAdapter({ fetchImpl: (async (input) => {
+    const url = new URL(String(input))
+    calls.push(url)
+    if (url.pathname === '/alpha/whoami') return Response.json({ user: { id: 'u1', name: 'A', userName: 'a' }, org: { id: orgId } })
+    assert.equal(url.searchParams.get('orgId'), orgId)
+    if (url.pathname === '/alpha/billing/credits') return Response.json({ credits: { monthlyCredits: 20, purchasedCredits: 0, freeCredits: 0 } })
+    if (url.pathname === '/alpha/billing/subscriptions') {
+      await new Promise(resolve => setTimeout(resolve, 5))
+      subscriptionRead = true
+      return Response.json({ data: { planId: 'individual-pro', status: 'active', currentPeriodStart: start, currentPeriodEnd: end } })
+    }
+    assert.equal(url.pathname, '/alpha/usage/summary')
+    assert.equal(subscriptionRead, true)
+    assert.equal(url.searchParams.get('since'), start)
+    return Response.json({ totalCount: 7, completedCount: 5, failedCount: 2, totalCost: 1.25, periodBasis: 'billing-period', periodStart: start })
+  }) as typeof fetch })
+  const report = await adapter.getUsage('user_test_key')
+  assert.equal(report.failures.length, 0)
+  assert.equal(calls.length, 4)
+  assert.equal(calls[0]?.pathname, '/alpha/whoami')
+  assert.equal(calls[3]?.pathname, '/alpha/usage/summary')
+  assert.equal(report.plan?.currentPeriodStart, Date.parse(start))
+  assert.equal(report.plan?.currentPeriodEnd, Date.parse(end))
+  assert.equal(report.usage?.periodStart, Date.parse(start))
+  assert.equal(report.usage?.totalCount, 7)
+})
+
+test('getUsage() 个人账号使用毫秒账期，不附带组织参数或重算自然月', async () => {
+  const start = Date.parse('2026-09-19T10:15:00Z')
+  const adapter = makeAdapter({ fetchImpl: (async input => {
+    const url = new URL(String(input))
+    assert.equal(url.searchParams.has('orgId'), false)
+    if (url.pathname === '/alpha/whoami') return Response.json({ user: { id: 'u1' }, org: null })
+    if (url.pathname === '/alpha/billing/subscriptions') return Response.json({ data: { currentPeriodStart: start } })
+    if (url.pathname === '/alpha/billing/credits') return Response.json({ credits: { monthlyCredits: 0 } })
+    assert.equal(url.searchParams.get('since'), String(start))
+    // 统计范围只认服务端返回值，不把请求的 since 填充成确认事实。
+    return Response.json({ periodStart: '2026-09-20T00:00:00Z', periodBasis: 'custom' })
+  }) as typeof fetch })
+  const report = await adapter.getUsage('user_test_key')
+  assert.equal(report.plan?.currentPeriodStart, start)
+  assert.equal(report.usage?.periodStart, Date.parse('2026-09-20T00:00:00Z'))
+  assert.equal(report.usage?.periodBasis, 'custom')
+})
+
+test('getUsage() 订阅失败仍按同一组织读取汇总，不编造账期', async () => {
+  const adapter = makeAdapter({ fetchImpl: (async input => {
+    const url = new URL(String(input))
+    if (url.pathname === '/alpha/whoami') return Response.json({ org: { id: 'org-1' } })
+    assert.equal(url.searchParams.get('orgId'), 'org-1')
+    if (url.pathname === '/alpha/billing/subscriptions') return new Response('{}', { status: 503 })
+    if (url.pathname === '/alpha/billing/credits') return Response.json({ credits: { monthlyCredits: 10, planId: 'individual-go' } })
+    assert.equal(url.searchParams.has('since'), false)
+    return Response.json({ totalCount: 3 })
+  }) as typeof fetch })
+  const report = await adapter.getUsage('user_test_key')
+  assert.equal(report.blocked, undefined)
+  assert.equal(report.failures.length, 1)
+  assert.equal(report.usage?.totalCount, 3)
+  assert.equal(report.usage?.periodBasis, 'unreported')
+  assert.equal(report.usage?.periodStart, undefined)
+  assert.equal(report.plan?.currentPeriodStart, undefined)
+  assert.equal(report.plan?.name, 'Go')
+})
+
+test('getUsage() 缺失或无效账期不传 since，不把未知统计起点变成零', async () => {
+  for (const start of [undefined, null, '', '不是日期', 0, -1, 9e99]) {
+    const adapter = makeAdapter({ fetchImpl: (async input => {
+      const url = new URL(String(input))
+      if (url.pathname === '/alpha/whoami') return Response.json({ user: { id: 'u1' } })
+      if (url.pathname === '/alpha/billing/subscriptions') return Response.json({ data: { currentPeriodStart: start } })
+      if (url.pathname === '/alpha/billing/credits') return Response.json({})
+      assert.equal(url.searchParams.has('since'), false)
+      return Response.json({ periodStart: start })
+    }) as typeof fetch })
+    const report = await adapter.getUsage('user_test_key')
+    assert.equal(report.failures.length, 0)
+    assert.equal(Object.hasOwn(report.usage!, 'periodStart'), false)
+    assert.equal(Object.hasOwn(report.plan!, 'currentPeriodStart'), false)
+  }
+})
 
 test('getUsage() classifies an all-401 run as an invalid key', async () => {
   const adapter = makeAdapter({ fetchImpl: fetchReturning(401, 'unauthorized') })

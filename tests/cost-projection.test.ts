@@ -37,13 +37,58 @@ function harness(prices = table) {
     send('request/header', { header: { config: { provider, model } } }, at)
   }
   const usage = (inputTokens: number, turn = 1, extra = {}) => send('assistant/message', { turn, step: 1, usage: { inputTokens, outputTokens: 0, ...extra } })
+  /** 压缩器自己发的一次摘要调用：没有 turn/step，用量只落在这个事件上。 */
+  const summary = (model: string, summaryUsage: { inputTokens: number; outputTokens?: number }, at = off, provider = 'commandcode') =>
+    send('compaction/summary', { provider, model, usage: { outputTokens: 0, ...summaryUsage } }, at)
   const view = (now = off) => {
     const facts = unit.wire.view(state), totals = zeroCostTokens()
     for (const g of facts.groups) for (const k of COST_TOKEN_KEYS) totals[k] += g.tokens[k]
+    // 宿主的 `tokenUsage` 只统计 `assistant/*` 结算，摘要调用不在其内；这里按同样的
+    // 口径剔除，复现真实的两投影对账，而不是让测试绕开它。
+    for (const k of COST_TOKEN_KEYS) totals[k] -= facts.summaryTokens[k]
     return buildSessionCostView({ usage: totals, facts, table: prices, selection: undefined, now })
   }
-  return { unit, send, start, usage, view, state: () => state }
+  return { unit, send, start, usage, summary, view, state: () => state }
 }
+
+test('a compaction summary is priced and kept out of the harness usage reconciliation', () => {
+  const h = harness()
+  h.start('expensive'); h.usage(1_000_000)
+  h.summary('expensive', { inputTokens: 500_000 })
+  const facts = h.unit.wire.view(h.state())
+  assert.equal(facts.summaryTokens.uncachedInputTokens, 500_000, '摘要用量单独记账，供读数端对账时扣除')
+  // 宿主合计不含摘要，扣除后仍与投影相等 —— 否则读数会整块消失。
+  assert.ok(Math.abs(h.view()!.total - 15) < 1e-10, '摘要的 50 万输入 token 也按同一费率计价')
+})
+
+test('a summary from another provider is never priced as Command Code', () => {
+  const h = harness()
+  h.start('expensive'); h.usage(1_000_000)
+  h.summary('expensive', { inputTokens: 1_000_000 }, off, 'other')
+  assert.ok(Math.abs(h.view()!.total - 10) < 1e-10, '别的路由写的摘要不进 Command Code 小计')
+})
+
+test('a summary that reports no usage leaves the fold untouched', () => {
+  const h = harness()
+  h.start('expensive'); h.usage(1_000_000)
+  h.send('compaction/summary', { provider: 'commandcode', model: 'expensive' })
+  assert.deepEqual(h.unit.wire.view(h.state()).summaryTokens, zeroCostTokens(), '没有 usage 就不编造用量')
+  assert.ok(Math.abs(h.view()!.total - 10) < 1e-10)
+})
+
+test('state persisted before summaryTokens existed still parses', () => {
+  const unit = createCostProjection(table)
+  const legacy = {
+    selection: null, at: null, last: null,
+    facts: {
+      pricingKey: unit.stateVersion,
+      groups: [{ provider: 'commandcode', model: 'expensive', at: off, contextTokens: 1, tokens: { ...zeroCostTokens(), uncachedInputTokens: 1 } }],
+    },
+  }
+  const state = unit.stateSchema.parse(legacy)
+  assert.deepEqual(state.facts.summaryTokens, zeroCostTokens(), '旧状态补零而不是被拒绝')
+  assert.equal(state.facts.groups.length, 1)
+})
 
 test('model switches and free models retain the costs of earlier requests', () => {
   const h = harness()

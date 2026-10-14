@@ -32,9 +32,12 @@ src/capabilities.ts   Static capability snapshot (model efforts/vision/thinking,
                       and the per-model output ceilings the catalog omits.
 src/accounts.ts       CommandCodeAccountPool — 固定账号定义的调用作用域，
                       按网关与密钥共享健康及节流，凭据实时解析与窗口恢复。
-src/image-request.ts  Request-image target: the long-edge/byte budget one
-                      request asks the attachment service to encode to
-                      (`{ width, height, maxBytes }`), plus the local
+src/image-request.ts  Request-image target: the long-edge (1568 px) / byte
+                      (1 MiB encoded) budget one request asks the attachment
+                      service to encode to (`{ width, height, maxBytes }`) —
+                      the target the adapter reports through its
+                      `imageRequestTarget()` override instead of the base
+                      class's normalized original — plus the local
                       `longEdgeDimensions()` that guards degenerate input.
 src/image-tokens.ts   Per-family visual-token estimates (Anthropic, OpenAI,
                       Gemini, DeepSeek, plus a conservative fallback) behind
@@ -114,7 +117,11 @@ src/cost-facts.ts      JSON-only billing facts shared by the Host projection and
                       the browser readout (groups, peak/hour rule, pricing key).
 src/cost-projection.ts  Durable `commandCodeCost` session projection: folds each
                       request's model, attempt time and prompt band so the
-                      readout prices history instead of cumulative totals.
+                      readout prices history instead of cumulative totals; also
+                      folds `compaction/summary` (compaction, 上下文压缩) events
+                      and records as `summaryTokens` the part that is folded
+                      into `groups` but does not belong to the host's
+                      `tokenUsage`.
 src/client/version.ts  Plugin version for the settings-page footer (package.json import, inlined at build).
 src/client/update.ts   Update hint: throttled npm-registry `latest` check +
                        tolerant semver compare (React-free, storage/fetch/time
@@ -198,7 +205,7 @@ tests/login.test.ts   browser-login flow integration tests (real loopback
 tests/login-wire.test.ts login descriptor uniformity + status parser.
 tests/login-client.test.ts login-panel controller poll lifecycle.
 tests/client-boot.test.ts client-boot integration tests (real apply() against a
-                      dsh 0.2.1-alpha.2-shaped client assembly; settings page +
+                      dsh 0.2.1-alpha.3-shaped client assembly; settings page +
                       provider card, and the `remote.settings` scope path end to
                       end: directory read, invalidation re-read, a save over the
                       path-op wire, and the degraded profile without the

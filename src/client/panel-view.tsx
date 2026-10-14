@@ -300,6 +300,7 @@ function AccountCard({ account, view }: { account: PanelAccountView; view: Panel
       {account.stats.length > 0 ? (
         <div className="ccp-block">
           <h4 className="ccp-blockTitle">{text('usage')}</h4>
+          <p className="ccp-windowReset">{account.usagePeriod}</p>
           <div className="ccp-tiles">
             {account.stats.map((stat) => (
               <Tile key={stat.label} label={text(stat.label)} value={stat.value} sub={stat.sub} />

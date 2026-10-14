@@ -32,7 +32,7 @@ import { loginHint, loginStateForTarget } from './login.ts'
 import { buildModelSelectOptions, catalogIsReady, groupModelSelectOptions, staleModelIds, tierHeadingFor, toggleModelSelection } from './model-select.ts'
 import type { UsagePageState } from './usage.ts'
 import { usageCardState } from './usage.ts'
-import { formatMoney, formatMoneyExact, formatResetAt, formatSuccessRate, formatTokensCompact, windowRatio } from '../display-format.ts'
+import { formatMoney, formatMoneyExact, formatResetAt, formatSuccessRate, formatTokensCompact, windowRatio, formatUsageBillingPeriod } from '../display-format.ts'
 import { PLUGIN_RELEASES_URL, PLUGIN_VERSION } from './version.ts'
 import { checkForUpdate, localStorageUpdateStore } from './update.ts'
 
@@ -307,6 +307,7 @@ function AccountReport({ entry, fetchedAt, t, headless = false }: {
   const planStatus = plan !== undefined && plan.status !== '' && plan.status !== 'active' ? plan.status : ''
   const showPeriod = plan !== undefined && plan.currentPeriodEnd > 0
   const showPartial = report.failures.length > 0 && report.blocked === undefined
+  const usagePeriod = formatUsageBillingPeriod(report.usage?.periodStart, plan?.currentPeriodStart, plan?.currentPeriodEnd)
 
   return (
     <div className="cc-accountReport">
@@ -336,11 +337,14 @@ function AccountReport({ entry, fetchedAt, t, headless = false }: {
       ) : null}
 
       {report.usage !== undefined ? (
+        <p className="cc-usageUpdated">{usagePeriod ? `${t('usageBillingPeriod')} ${usagePeriod}` : t('usagePeriodUnknown')}</p>
+      ) : null}
+      {report.usage !== undefined ? (
         <div className="cc-usageStats cc-usageStatsActivity">
           <UsageStat
             label={t('usageRequests')}
-            value={String(report.usage.completedCount)}
-            sub={`${t('usageFailed')} ${report.usage.failedCount}`}
+            value={String(report.usage.totalCount)}
+            sub={`${t('usageCompleted')} ${report.usage.completedCount} / ${t('usageFailed')} ${report.usage.failedCount}`}
           />
           <UsageStat label={t('usageSuccessRate')} value={`${formatSuccessRate(report.usage.successRate)}%`} />
           <UsageStat

@@ -29,18 +29,18 @@ Unofficial [DeepSeek Harness](https://deepseek-harness.github.io/deepseek-harnes
 - **Reasoning-effort support** — models with selectable reasoning effort levels expose them in the picker.
 - **Image input** — Vision-capable models accept images.
 - **Plans & quota panel** — an optional Command Code card at the bottom of the sidebar (directly above Settings) shows the serving account's plan and its 5-hour and weekly windows; clicking it opens a dashboard with the billing period, both windows as progress bars with reset times, monthly credit consumption, and the purchased/free balances. The dashboard's **×** button hands the center column back to your conversation (the current session is untouched). **Off by default** — turn on *"Show the quota card in the sidebar"* under **Settings → Command Code → Integrations & display** to show it, and the same switch hides it again (a hidden card draws nothing at all and runs no background usage poll); the change lands as soon as you save. The panel follows your harness language (中文 / English).
-- **Session cost estimate** — published-rate estimates (`≈`) beside the composer token counter and in its usage dialog, using each request's model, request time and context tier from durable session history. Model switches and viewing the session later do not reprice earlier requests. Mixed-provider or unpriced usage shows a labeled subtotal (`≥`); missing history or wholly unpriceable usage stays hidden. These are estimates from the installed price snapshot, not provider invoices. Also English on every harness language.
+- **Session cost estimate** — published-rate estimates (`≈`) beside the composer token counter and in its usage dialog, using each request's model, request time and context tier from durable session history. Model switches and viewing the session later do not reprice earlier requests. Mixed-provider or unpriced usage shows a labeled subtotal (`≥`); missing history or wholly unpriceable usage stays hidden. Automatic and manual compaction inside a session sends one extra model request, recorded on the `compaction/summary` event; that usage is now priced into the Command Code cost, and into the historical model analysis, while summaries written by other providers stay unpriced. These are estimates from the installed price snapshot, not provider invoices. Also English on every harness language.
 - **Web search** — the dsh `web_search` tool is backed by the Command Code Provider API (`/alpha/web-search`) with the same key/endpoint as chat, so no separate search key or base URL is needed. See [Web search](#web-search).
 
 See [Screenshots](#screenshots) below for what the UI looks like.
 
 ## Install
 
-This release supports **dsh 0.2.0-rc.2 (RC) and dsh 0.2.1-alpha.2 (alpha)**.
+This release supports **dsh 0.2.0-rc.2 (RC) and dsh 0.2.1-alpha.3 (alpha)**.
 The compatibility policy keeps the latest verified official release candidate
 and alpha release, one per channel. These match npm's `latest` and `alpha` tags
-as checked on 2026-10-11. The peer range and compatibility records name only
-these two exact versions. A profile on `0.2.1-alpha.1` must upgrade its engine
+as checked on 2026-10-14. The peer range and compatibility records name only
+these two exact versions. A profile on `0.2.1-alpha.2` must upgrade its engine
 before installing this build:
 
 ```sh
@@ -75,7 +75,7 @@ Fresh pnpm 10 marketplace generations are supported directly. Every Harness pack
 Update with the same tag you installed with:
 
 ```sh
-dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@latest     # dsh 0.2.0-rc.2 or 0.2.1-alpha.2
+dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@latest     # dsh 0.2.0-rc.2 or 0.2.1-alpha.3
 dsh plugin --profile web update @mars-sea/dsh-commandcode-provider@0.9.1      # older dsh (0.5.0 line, unmaintained)
 ```
 
@@ -128,7 +128,12 @@ Then pick the provider in the model selector, or name it directly:
 
 **Picking models.** That page lists the whole catalog as checkboxes, grouped by plan tier (Go → GOAT → Pro → Provider) with the free models first, so nothing has to be typed from memory. Everything starts checked, because an unset allowlist means "show every model" — uncheck the ones you do not want in the picker. The choice is stored as per-model overrides next to the `visibleModels` list the web page edits, so both surfaces can be used interchangeably and a plain `visibleModels` written by hand still works.
 
-Alternatively, set the key outside the TUI — any of these work, in this order of precedence:
+Alternatively, set the key outside the TUI. The first match wins:
+
+- A literal `apiKey` written into the composition config wins over everything else and is always used.
+- Otherwise the credential reference is resolved (`apiKeyEnv`, `COMMANDCODE_API_KEY` by default). In a profile that **mounts the credentials service** — Web, desktop, SDK, ACP — that service owns the layer order: **from 0.2.1-alpha.3 on, a saved credential wins over the launching environment**, with the environment and `.env` as the fallback; 0.2.1-alpha.2 and earlier were the other way round, with the environment first.
+- A **headless profile deliberately mounts no credentials service**, so only the launching environment, the project `.env`, and `$DSH_HOME/.env` apply — **a key saved on the page never reaches a headless run**. Export the variable or write a `.env` for those runs.
+- The last resort is `~/.commandcode/auth.json`, written by the official CLI.
 
 ```sh
 export COMMANDCODE_API_KEY="user_..."   # launching environment
@@ -149,7 +154,7 @@ cmd login                               # writes ~/.commandcode/auth.json
         cwd: !!js process.cwd()
 ```
 
-**Engine version.** The plugin is maintained against two engines: **dsh 0.2.0-rc.2** and **dsh 0.2.1-alpha.2**. Its `@deepseek-ai/dsh-*` peers use `0.2.0-rc.2 || 0.2.1-alpha.2`, while `@deepseek-ai/cordis` and `@deepseek-ai/schemastery` retain their engine-paired ranges `~4.0.4 || ~4.0.5-alpha.1` and `~3.18.4 || ~3.18.5-alpha.1`. Compatibility records contain exactly these two engines. Each channel upgrade replaces its previous version after verification; it does not accumulate supported releases or admit unverified neighbours. Both `npm run test:engine` and `npm run test:install` check each retained version. See [Install](#install) for older engines.
+**Engine version.** The plugin is maintained against two engines: **dsh 0.2.0-rc.2** and **dsh 0.2.1-alpha.3**. Its `@deepseek-ai/dsh-*` peers use `0.2.0-rc.2 || 0.2.1-alpha.3`, while `@deepseek-ai/cordis` and `@deepseek-ai/schemastery` retain their engine-paired ranges `~4.0.4 || ~4.0.5-alpha.1` and `~3.18.4 || ~3.18.5-alpha.1`. Compatibility records contain exactly these two engines. Each channel upgrade replaces its previous version after verification; it does not accumulate supported releases or admit unverified neighbours. Both `npm run test:engine` and `npm run test:install` check each retained version. See [Install](#install) for older engines.
 
 ## Usage dashboard
 
@@ -244,6 +249,7 @@ Command Code can serve a request only through upstreams that retain no prompts o
 ## Notes & limitations
 
 - **Image input is model-gated** — only Vision models accept images; text-only models refuse them.
+- **Image size is reported as sent** — the adapter overrides `imageRequestTarget` with the target this route actually puts on the wire: long edge 1568, encoded bytes capped at 1 MiB. The harness's screenshot callers therefore size against what the gateway receives instead of the normalized original.
 - Switching to a text-only model in an image-bearing session is rejected by dsh — pick a model marked *`Image`* or remove the images first.
 - **Long image-heavy sessions keep working** — the provider caps the size of a single request (around 50 MB, and it is undocumented), so a session that accumulates many screenshots would otherwise start failing every request once it grew past that. The oldest images beyond the budget are replaced by a short "image omitted" note that names the attachment, the newest ones are sent as usual, and a request the provider still rejects as too large is retried once with a much smaller image budget before failing.
 - **No `stop` sequences** — requests carrying one fail.

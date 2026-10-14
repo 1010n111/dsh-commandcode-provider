@@ -124,6 +124,9 @@ function parseUsageReport(value: unknown): CommandCodeUsageReport {
       totalCredits: numberField(usage, 'totalCredits', 'usage.totalCredits'),
       periodBasis: stringField(usage, 'periodBasis', 'usage.periodBasis'),
     }
+    if (usage.periodStart !== undefined) {
+      report.usage.periodStart = numberField(usage, 'periodStart', 'usage.periodStart')
+    }
   }
 
   if (source.credits !== undefined) {
@@ -165,6 +168,9 @@ function parseUsageReport(value: unknown): CommandCodeUsageReport {
       status: stringField(plan, 'status', 'plan.status'),
       monthlyCredits: monthly as number | null,
       currentPeriodEnd: numberField(plan, 'currentPeriodEnd', 'plan.currentPeriodEnd'),
+    }
+    if (plan.currentPeriodStart !== undefined) {
+      report.plan.currentPeriodStart = numberField(plan, 'currentPeriodStart', 'plan.currentPeriodStart')
     }
   }
 

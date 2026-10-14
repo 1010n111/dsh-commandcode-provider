@@ -85,14 +85,18 @@ test('旧迭代器延后消费不能撤销新网关目录刷新', async () => {
 })
 
 test('账号轮换不读取另一网关刚刷新的目录路由或预算', async () => {
-  const a = 'https://frozen-route-a.invalid', b = 'https://frozen-route-b.invalid'
+  const a = 'https://frozen-route-a.invalid', b = 'https://frozen-route-a.invalid.review.invalid'
   let current = connection(a)
   const barrier = gate(), sent: Array<{ url: string; max: number }> = []
   const adapter = new CommandCodeAdapter({ options: () => current, resolveApiKey: async () => 'synthetic-first',
     rotateApiKey: async () => { barrier.enter(); await barrier.waiting; return 'synthetic-second' },
     fetchImpl: (async (input, init) => {
       const url = String(input)
-      if (url.endsWith('/models')) return catalog(url.startsWith(a) ? 20000 : 90000, url.startsWith(a) ? '/messages' : '/chat/completions')
+      const target = new URL(url)
+      if (target.pathname === '/provider/v1/models') {
+        const originalGateway = target.origin === a
+        return catalog(originalGateway ? 20000 : 90000, originalGateway ? '/messages' : '/chat/completions')
+      }
       sent.push({ url, max: budget(init) })
       return sent.length === 1 ? new Response('invalid credential', { status: 401 }) : answer(url)
     }) as typeof fetch,

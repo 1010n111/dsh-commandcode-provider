@@ -46,7 +46,9 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
     parity only — see `docs/issue-64-cache-review.md`'s "root-cause boundary" section, which already tested
     this exact value on this transport and excluded it as a fix for the image cache-boundary regression.
     Used for Go-plan accounts (the only plan without Provider API access) and as the fallback when
-    `/provider/v1/chat/completions` returns `upgrade_required`. Historical reasoning IS replayed here as a
+    `/provider/v1/chat/completions` returns `upgrade_required`, or when `/provider/v1/messages` answers
+    403 with a structured `permission_error` (issue #84 — see the routing bullet for the exact bound).
+    Historical reasoning IS replayed here as a
     `{ type: 'reasoning', text }` part of the assistant content array, in content order — the official CLI's
     `toWireMessages` converts every `thinking` block that way (command-code@1.54.0), and the provider
     rejects a DeepSeek thinking-mode tool loop whose assistant tool calls arrive without their reasoning
@@ -319,8 +321,15 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   window → `RATE_LIMIT`, a bare throttle → `THROTTLED`;
   **pre-stream 5xx → `SERVER` and 408 → `TIMEOUT`** (`httpErrorCode()`, so a gateway blip — e.g.
   Cloudflare's 520 "Upstream model provider is temporarily unavailable" — reaches the retry whitelist
-  instead of failing the turn); other HTTP → `PROVIDER_HTTP_ERROR` (403 body's `error.code`, e.g.
-  `MODEL_NOT_IN_PLAN`, is parsed into the message). **A context-window rejection →
+  instead of failing the turn); other HTTP → `PROVIDER_HTTP_ERROR`.
+  通用 HTTP 错误分别保留 `code`（错误码）与 `type`（错误类型），每个字段只接受
+  1 至 80 个 ASCII 字母、数字及 `_.:-`；不回显上游正文，非法字段独立丢弃。
+  纯文本只提取既有四个套餐／额度标识；分类与重试规则不依赖展示过滤。
+  失败请求号仍通过 `failure.requestId` 保留。
+  回退 CLI 直连的有两类拒绝：既有 `upgrade_required`（套餐升级门槛），以及
+  Messages 端点的 403 加结构化 `permission_error`（权限错误，见下方路由条目）；
+  后者的触发面、不缓存规则与失败文案见同一条目。
+  **A context-window rejection →
   `CONTEXT_WINDOW_EXCEEDED`** (the harness's own code: `isContextWindowExceededError` plus the official
   CLI's `truncated` pattern, matched against the provider's `error.code`/`type`/`message`). It is
   deliberately OUTSIDE the retry whitelist because `dsh-compaction-basic`'s `agent/request-error` hook
@@ -402,9 +411,18 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   fall back" rather than a hard gate. **The call to `rememberProtocol()` is deliberately absent on this
   path**: `protocolCache` is keyed by gateway and API key, while the decision also depends on the MODEL; remembering it
   would pin the whole ACCOUNT to one transport and drag DeepSeek, GLM and Qwen along with it until the entry
-  expired. The same rule governs the `upgrade_required` downgrade: a Messages refusal is not cached, while a
+  expired. The same rule governs BOTH CLI downgrades — `upgrade_required` and the Messages
+  `permission_error` (issue #84): a Messages refusal is not cached, while a
   Chat Completions one is. A Go-plan account never reaches either, because its cached billing tier already
   routes to the CLI transport — which is the only reason that transport still exists.
+  **Why the Messages `permission_error` also downgrades**: the reverse-proxy route that forwards Claude can
+  fail for one account while the same key's CLI direct route works — measured 2026-10-14 on a GOAT
+  (`individual-goat`) account, where `POST /alpha/generate` with `claude-haiku-5-5` returned a normal stream.
+  触发面刻意收窄（`isMessagesPermissionRejection()`，见 `src/provider-errors.ts`）：只认 HTTP 403
+  且结构化 `code`/`type` 恰为 `permission_error`。原始正文一律不扫，因此整页 HTML 错误或回显消息都
+  无法换来一次传输切换；真正「模型不在套餐内」的拒绝（`MODEL_NOT_IN_PLAN` 等）保留自己的诊断且不重试。
+  回退后的 CLI 也失败时，上报的是 CLI 那次的结果，并附上先前的 Messages 标识
+  （`此前 Messages 接口以 … 拒绝，已回退 CLI 直连，仍未成功`），两段链路都可见，且都不回显正文。
   `tests/adapter.test.ts` pins the route, the catalog-over-name precedence, the `claude-*` fallback for an
   entry with no route list, and that a Claude request followed by a DeepSeek one still lands on Chat
   Completions.

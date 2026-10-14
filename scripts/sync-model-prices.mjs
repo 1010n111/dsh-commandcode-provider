@@ -17,8 +17,8 @@
  * a `<table>`: it was a real table until some point before 2026-09-29, when the
  * `<tr>`-based parser was found to be matching only the six plan cards and
  * therefore checking none of the 88 model rows. `renderedRates()` now anchors on
- * each row's name cell and harvests all 88, `main()` refuses to write when that
- * harvest collapses, and a discounted row's struck-through figures are compared
+ * each row's name cell; every numeric record needs its own verified row,
+ * and a discounted row's struck-through figures are compared
  * against the `listRates` taken from the table JSON — so the pre-discount copy
  * is verified by an independent rendering of it, not by itself.
  *
@@ -50,6 +50,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
+import { parseFragment } from 'parse5'
 
 const PRICING_URL = 'https://commandcode.ai/docs/resources/pricing-limits'
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -210,18 +211,30 @@ function scanObject(text, start) {
  * The previous parser split on `<tr>`/`<td>`; when the page moved to this
  * layout it kept returning the six plan cards and silently cross-checked
  * nothing for 88 models (measured 2026-09-29), which is why this now anchors on
- * the name cell and why `main()` refuses a suspiciously small harvest.
+ * the name cell and requires a cross-check for every rewritten model.
  */
 const NAME_CELL_OPEN = '<div class="flex min-w-0 items-center gap-2 px-4 py-3">'
-const MODEL_NAME = /<(?:a|span)[^>]*class="[^"]*text-\[13px\] font-medium[^"]*"[^>]*>([\s\S]*?)<\/(?:a|span)>/
-const RATE_CELL = /<div class="(?:px-2 py-3 text-right|flex flex-col items-end px-2 py-3)[^"]*">([\s\S]*?)<\/div>/g
-/**
- * A struck-through figure. The trailing `(?:\s[^>]*)?` matters: a looser
- * `<s[^>]*>` also matches `<span …>`, which would read a live price as if the
- * page had struck it through — an error this caught on the DeepSeek rows, whose
- * only markup is a tooltip `<span>`.
- */
-const STRUCK_RATE = /<s(?:\s[^>]*)?>[^0-9]*\$([0-9]+(?:\.[0-9]+)?)/
+
+/** 遍历解析后的树，注释不参与文本；不执行脚本，也不把结果用作 HTML。 */
+function* descendants(node) {
+  for (const child of node.childNodes ?? []) {
+    if (['script', 'style', 'template'].includes(child.tagName)) continue
+    yield child
+    yield* descendants(child)
+  }
+}
+
+function plainText(node) {
+  return [...descendants(node)].filter((child) => child.nodeName === '#text').map((child) => child.value).join('')
+}
+
+function classes(node) {
+  return new Set((node.attrs?.find((attr) => attr.name === 'class')?.value ?? '').split(/\s+/u))
+}
+
+function normalizedName(name) {
+  return name.trim().replace(/\s+/gu, ' ').toLowerCase()
+}
 
 /**
  * Read the model table out of the page's rendered HTML as a second opinion.
@@ -236,39 +249,53 @@ const STRUCK_RATE = /<s(?:\s[^>]*)?>[^0-9]*\$([0-9]+(?:\.[0-9]+)?)/
  *   three rate cells carry one. This is a genuinely independent copy of the
  *   table JSON's `listRates`, which is what makes it worth checking against.
  *
- * Rows whose cells show a word instead of a figure (`Free`) or the em-dash of an
- * unpublished rate are left out: there is nothing to compare, and a row that
- * cannot be parsed must never be reported as agreement.
+ * 免费与未公开价格保留明确状态；缺行和无法解析不能冒充交叉校验成功。
  *
  * @param {string} html - the fetched document.
- * @returns {Map<string, { rates: number[], listRates?: number[] }>} lower-cased display name → parsed row.
+ * @returns {Map<string, { rates?: number[], listRates?: number[], status?: 'free' | 'unpublished' }>} 模型名称 → 数值或明确的无数值状态。
  */
-function renderedRates(html) {
+export function renderedRates(html) {
   const found = new Map()
   const segments = html.split(NAME_CELL_OPEN).slice(1)
   for (const segment of segments) {
-    const nameMatch = segment.match(MODEL_NAME)
-    if (nameMatch === null) continue
-    const name = nameMatch[1]
-      .replace(/<[^>]*>/g, '')
-      .replace(/<!--[\s\S]*?-->/g, '')
-      .trim()
-      .toLowerCase()
-    if (name === '' || found.has(name)) continue
-    const current = []
-    const struck = []
-    for (const cell of segment.matchAll(RATE_CELL)) {
-      const inner = cell[1]
-      const money = [...inner.matchAll(/\$([0-9]+(?:\.[0-9]+)?)/g)]
-      if (money.length === 0) continue
-      current.push(rate(Number(money[money.length - 1][1])))
-      const was = inner.match(STRUCK_RATE)
-      struck.push(was === null ? undefined : rate(Number(was[1])))
+    // 真正的 HTML 解析器处理字符实体、带 > 的属性与未闭合片段；正则删标签
+    // 无法保证拿到模型名。这里只读文本，绝不声称这些文本可以安全渲染为 HTML。
+    const nodes = [...descendants(parseFragment(segment))]
+    const nameNode = nodes.find((node) => ['a', 'span'].includes(node.tagName)
+      && classes(node).has('text-[13px]') && classes(node).has('font-medium'))
+    if (nameNode === undefined) continue
+    const name = normalizedName(plainText(nameNode))
+    if (name === '') continue
+    if (found.has(name)) throw new Error(`价格表模型名称重复，无法确定对应行：${name}`)
+    // 第一格是上下文长度，其后三格才是输入、输出、缓存读；不可跳过缺数值
+    // 的格子后拿缓存写或下一行的价格补齐，否则金额会发生列错位。
+    const cells = nodes.filter((node) => {
+      const tokens = classes(node)
+      return node.tagName === 'div' && tokens.has('px-2') && tokens.has('py-3')
+        && (tokens.has('text-right') || tokens.has('items-end'))
+    }).slice(1, 4)
+    if (cells.length !== 3) continue
+    const texts = cells.map(plainText).map((text) => text.trim())
+    if (texts.every((text) => /^free$/iu.test(text))) {
+      found.set(name, { status: 'free' })
+      continue
     }
-    if (current.length < 3) continue
-    const listTriplet = struck.slice(0, 3)
+    if (texts.some((text) => text === '—')) {
+      found.set(name, { status: 'unpublished' })
+      continue
+    }
+    const current = texts.map((text) => {
+      const money = [...text.matchAll(/\$([0-9]+(?:\.[0-9]+)?)/g)]
+      return money.length === 0 ? undefined : rate(Number(money.at(-1)[1]))
+    })
+    if (current.some((value) => value === undefined)) continue
+    const listTriplet = cells.map((cell) => {
+      const struck = [...descendants(cell)].find((node) => node.tagName === 's')
+      const money = struck === undefined ? undefined : /\$([0-9]+(?:\.[0-9]+)?)/u.exec(plainText(struck))
+      return money == null ? undefined : rate(Number(money[1]))
+    })
     found.set(name, {
-      rates: current.slice(0, 3),
+      rates: current,
       ...(listTriplet.length === 3 && listTriplet.every((value) => value !== undefined)
         ? { listRates: listTriplet }
         : {}),
@@ -287,7 +314,7 @@ function renderedRates(html) {
  * promotional rate without waiting for the next sync.
  *
  * @param {Array<Record<string, unknown>>} records - model records from the page.
- * @param {Map<string, number[]>} rendered - the HTML cross-check.
+ * @param {ReturnType<typeof renderedRates>} rendered - the HTML cross-check.
  * @param {Map<string, Record<string, unknown>>} [dealRecords] - the pricing table's records.
  * @returns {Array<{ id: string, rates: number[], listRates?: number[], peak?: number[], allowance?: { go?: number, goat: number, pro: number }, contextTiers?: unknown[] }>} the rows.
  */
@@ -423,9 +450,17 @@ function buildRows(records, rendered, dealRecords = new Map()) {
     }
 
     // Second opinion: the rendered row must agree with the embedded JSON.
-    const name = typeof record.name === 'string' ? record.name.toLowerCase() : ''
+    const name = typeof record.name === 'string' ? normalizedName(record.name) : ''
     const htmlRow = rendered.get(name)
-    if (htmlRow !== undefined) {
+    if (htmlRow === undefined) {
+      problems.push(`  ! ${id}: 缺少可校验的网页价格行（${name || '模型名称缺失'}）`)
+    } else if (htmlRow.status === 'free') {
+      if (rates.some((value) => value !== 0)) problems.push(`  ! ${id}: 网页显示免费，但嵌入数据不是零价`)
+    } else if (htmlRow.status === 'unpublished') {
+      problems.push(`  ! ${id}: 网页未公开完整数值价格，无法交叉校验`)
+    } else if (htmlRow.rates === undefined || htmlRow.rates.length !== 3) {
+      problems.push(`  ! ${id}: 网页数值价格行不完整`)
+    } else {
       for (let i = 0; i < 3; i += 1) {
         if (htmlRow.rates[i] !== rates[i]) {
           problems.push(
@@ -512,19 +547,8 @@ async function main() {
     console.error(`only ${records.length} model records found — the page shape changed; refusing to rewrite`)
     process.exit(2)
   }
-  // A blind cross-check is worse than no cross-check, because the run looks
-  // clean either way. That is exactly what happened between the page's move to a
-  // div grid and 2026-09-29: the old `<tr>` parser matched six plan cards and
-  // silently compared nothing for 88 models. Refuse to write when the harvest
-  // collapses like that, so the next layout change fails loudly instead.
+  // 覆盖率由 buildRows 逐模型验证；总数门槛无法发现只缺一行或多出无关行。
   const rendered = renderedRates(html)
-  if (rendered.size < records.length / 2) {
-    console.error(
-      `only ${rendered.size} model rows parsed out of the rendered table for ${records.length} records — ` +
-        `the second opinion went blind; refusing to rewrite`,
-    )
-    process.exit(2)
-  }
   const source = await readFile(TARGET, 'utf8')
   const { next, rowCount } = buildPriceSnapshot(records, rendered, extractDealRecords(html), source)
 

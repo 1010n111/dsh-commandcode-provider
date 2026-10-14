@@ -2,6 +2,8 @@
 
 Task-specific reference moved from the former root `AGENTS.md`. All source and test paths are relative to the repository root. Consult the relevant source and tests before changing behavior.
 
+- **官方账期汇总**：`getUsage()` 先读取账号组织，再按同一 `orgId`（组织标识）并行读取余额和订阅，最后以订阅原始 `currentPeriodStart`（账期起点）作为 `since`（统计起点）读取汇总。订阅失败时汇总独立降级，不补本地自然月。严格远端可选保留汇总 `periodStart` 与订阅 `currentPeriodStart`；只有两者相等且截止日有效时，设置页和额度面板展示完整官方账期，否则提示周期未确认。请求数采用 `totalCount`（请求总数），成功和失败另列。官网三条 `/internal/usage*` 明细接口用浏览器登录会话；2026-10-14 同一真实账号的既有密钥查询全部返回 401，未新增浏览器凭据读取。接口盘点、验证与边界见[官方账期用量](../官方账期用量.md)。
+
 模型历史分析（问题 #79）：`src/analytics.ts` 按逐请求时间与上下文折叠，不使用已合并的会话费用桶；`src/analytics-history.ts` 可选绑定 `sessionQuery.listSessions/readSession`，包含关闭会话、排除分支继承用量，每次限 500 会话和 200000 事件。`src/analytics-wire.ts` 提供双方共享严格远端，浏览器只收到汇总数字与能力；设置页和既有面板均可打开，不依赖额度卡片开关、不轮询历史。试算固定原词元与时间，不能推断换模型后的缓存、输出或质量。成本按当前价，不是账单或积分；只有完整且全部计价的至少一天日期范围才折算 30 天成本。全部接口、文档盘点与验证边界见 [实现说明](../模型成本与性能分析.md)。
 
 - **账号报告来源**：一次报告固定入口捕获的连接、账号列表与固定账号，窗口探测与所有账号的用量请求使用同一网关。先完成账号池共享恢复，再读取健康标记，避免已恢复账号继续展示探测前的旧状态；不同网关的同一密钥不共享健康或探测节流。
@@ -210,21 +212,21 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   network failure never reads as "up to date"). The cross-check is the point: a
   row can be internally consistent and still be the wrong row, which is exactly
   how `deepseek-v4-flash-vision-exp` shipped ~47% high.
-  **The row anchors on the page's current layout, and a collapsed harvest is
-  fatal.** `renderedRates()` splits on the row's NAME CELL
-  (`flex min-w-0 items-center gap-2 px-4 py-3`) and reads the rate cells that
-  follow, which harvests all 88 model rows on the live page; `main()` exits 2
-  instead of rewriting when that harvest drops below half the record count, so a
-  future layout change fails loudly rather than comparing nothing. It used to
+  **价格交叉校验逐模型覆盖。** `renderedRates()` 仍以名称格
+  (`flex min-w-0 items-center gap-2 px-4 py-3`) 分段，使用开发依赖 `parse5`
+  解析 HTML（网页标记）后取名称和价格文本，处理嵌套标签、注释及字符实体；
+  不执行脚本，也不把提取文本用作 HTML。上下文列与三个价格列按位置读取，
+  不用缓存写或后续列补齐缺失价格。重复名称、缺失或不可解析的模型行会阻止
+  快照生成，不能用总行数门槛证明每一行已校验。It used to
   split on `<tr>`/`<td>`: after the model table became a `<div>` grid, that
   parser matched only the six plan cards (Go/GOAT/Pro/Max 10×/Max 20×/Team Pro)
   and checked no model row at all — measured and fixed 2026-09-29. The
   struck-through `<s>` figures a discounted row renders are compared against the
   table JSON's `listRates`, so the pre-discount copy is verified by an
-  independent rendering of it rather than by itself. A row that shows a word
-  (`Free`) or an em-dash publishes no figure and is skipped — an unparseable row
-  is never counted as agreement. Beware `<s[^>]*>` when touching that regex: it
-  also matches `<span …>`, which reads a live price as struck through.
+  independent rendering of it rather than by itself. 删除线按真正的 `<s>`
+  元素识别，不能把 `<span>` 当成原价。`Free`（免费）行只在嵌入价格全部为零时
+  通过；`—`（未公开价格）保留明确状态并拒绝生成无法验证的数值快照。
+  校验失败退出 2，既有价格表不被覆盖。
   **Only the page's literal `listRates` is usable as a pre-discount figure** —
   its `discountPercent` is a marketing number that does not divide out (MiMo
   V2.5's "98% off" prices its three buckets at 5.7×, 14.3× and 57× of list), so

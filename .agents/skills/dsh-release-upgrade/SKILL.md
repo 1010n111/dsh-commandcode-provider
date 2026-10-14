@@ -20,7 +20,7 @@ From the repository root:
 
 ```sh
 python3 .agents/skills/dsh-release-upgrade/scripts/collect.py \
-  --baseline dsh-v0.2.1-alpha.2 \
+  --baseline dsh-v0.2.1-alpha.3 \
   --target 'dsh-v<new-alpha-version>' \
   --out /tmp/dsh-release-audit-YYYYMMDD-XXXX
 ```

@@ -37,6 +37,34 @@ test('每次请求保留价格时段，时间过滤不使用合并成本桶', ()
   assert.equal(range.totals.requests, 1)
   assert.ok(Math.abs(range.totals.cost - .000346) < 1e-12)
 })
+test('压缩摘要按事件自带的 provider 与 model 单独登记，且不打断前后请求', () => {
+  const h = log(); h.start(); h.message(100)
+  h.send('compaction/summary', { provider: 'commandcode', model: 'm', usage: { inputTokens: 40, outputTokens: 8 } }, off + 5000)
+  h.start(2, off + 10000); h.message(200, 2, {}, off + 11000)
+  const facts = h.facts()
+  assert.equal(facts.length, 3, '两次请求加一次摘要')
+  const summary = facts[1]!
+  assert.equal(summary.model, 'm')
+  assert.equal(summary.outcome, 'completed')
+  assert.equal(summary.retry, false)
+  assert.deepEqual(summary.tokens, { uncachedInputTokens: 40, outputTokens: 8, cacheReadTokens: 0, cacheWriteTokens: 0 })
+  assert.equal(facts[2]!.tokens!.uncachedInputTokens, 200, '摘要之后的请求仍按自己的 step 折叠')
+  const totals = buildAnalytics(facts, recent, table, catalog).totals
+  assert.equal(totals.requests, 3)
+  assert.equal(totals.tokens.outputTokens, 10 + 8 + 10)
+})
+test('别的 provider 写的摘要不进本路由的历史分析', () => {
+  const h = log(); h.start(); h.message(100)
+  h.send('compaction/summary', { provider: 'deepseek', model: 'm', usage: { inputTokens: 40, outputTokens: 8 } }, off + 5000)
+  assert.equal(h.facts().length, 1)
+})
+test('摘要没有上报用量时仍登记请求，但不编造 token', () => {
+  const h = log(); h.start(); h.message(100)
+  h.send('compaction/summary', { provider: 'commandcode', model: 'm' }, off + 5000)
+  const facts = h.facts()
+  assert.equal(facts.length, 2)
+  assert.equal(facts[1]!.tokens, undefined)
+})
 test('分支继承前缀恢复模型选择但不重复计费', () => {
   const h = log(); h.start(); h.message(100)
   const cut = h.events.length
