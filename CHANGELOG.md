@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.2] - 2026-10-15
+
+### Added
+
+- 采纳 dsh `0.2.1-alpha.3` 的 `LlmAdapter.imageRequestTarget`（图片请求目标）：适配器把本路由**实际发送**的图片尺寸与编码字节上限（长边 1568、1 MiB）上报给宿主，替代基类默认的「归一化原图」。宿主的截图类调用方此前会按 2880×1800 这类原图尺寸和原始字节数估算，与本路由重新编码后真正上线的内容不一致。
+- 把**压缩摘要请求**计入会话费用读数与历史模型分析。上下文压缩会额外发出一次模型请求，用量记在 `compaction/summary` 事件上；该请求走压缩器自己的 `ctx.llm.stream()`，不产生 `request/header` 与 `assistant/*` 结算事件，因此此前被系统性漏计——而 `0.2.1-alpha.3` 把自动压缩放进极简模式默认组合后，漏计从偶发变成常态。现在按事件自带的 provider 与 model 计价，只认 `commandcode`，其他路由写的摘要仍不计价。费用投影新增 `summaryTokens`，记录「已计入成本但不在宿主 `tokenUsage` 内」的那部分；读数端的对账等式改为 `groups 合计 − summaryTokens === tokenUsage` 并**保持严格相等**，两侧仍须描述同一个耐久切面。升级前持久化的会话状态没有该字段，解析时补零而不是被拒绝。
+
+### Changed
+
+- 引擎兼容替换为 `0.2.0-rc.2 || 0.2.1-alpha.3`：每条通道只保留官方最新且已验证的一版，`0.2.1-alpha.2` 由 `0.2.1-alpha.3` 替换（与 2026-10-14 核对的 npm `alpha` 标签一致）。`@deepseek-ai/dsh-*` peer 析取、`dsh.compatibility.dsh`、`engines.dsh`、`devDependencies`、`package-lock.json` 与 `dsh.compatibility.dshReleases` 同批同步；`@deepseek-ai/cordis`（`~4.0.4 || ~4.0.5-alpha.1`）与 `@deepseek-ai/schemastery`（`~3.18.4 || ~3.18.5-alpha.1`）范围**不变**——alpha.3 配对的正是 `4.0.5-alpha.2` 与 `3.18.5-alpha.2`，与该范围分支同 major.minor.patch，已被覆盖。逐文件对比与真实引擎验证确认**适配器与客户端运行时代码零改动**；`scripts/verify-engine-load.mjs` 的探针另做引擎感知适配，见下条。
+- 测试采集脚本改为**引擎感知**：`0.2.1-alpha.3` 的 `TypertGatewayService` 新增必需注入 `remoteAccess`（缺失时 cordis 让网关停在未激活态），且 `InvokeRemoteRequest.peer` 由可选变必需。新增 `engineOwnerPeer()` 与 `pluginEngineRemoteAccess()` 两个探测式助手：新引擎构造 owner Peer 并注册远端访问服务，旧引擎没有 `dsh-api-remote-access` 包、`dsh-client-connection` 也没有 `Peer`（只有 `OperatorPeer`），按能力跳过。两个已声明引擎共用同一套探针，不按版本分叉。
+- 凭据解析层序随上游反转，并落到文档与错误文案：`0.2.1-alpha.3` 起托管存储（`$DSH_HOME/.credentials.yaml`）**优先于**继承的进程环境（此前相反），`describe()` 恒返回 `writable: true`、写入不再因环境变量遮蔽被拒；同时 **headless（无头）profile 有意不再挂载凭据服务**，一次性任务只认启动环境与 `.env`，因此只在页面上保存过 key 的运行会报 `MISSING_CREDENTIAL`。插件对服务缺席本来就有回落守卫（process → 项目 `.env` → `$DSH_HOME/.env`），本次不改装配、只改 `MISSING_CREDENTIAL` 文案与两份 README、[账号与重试](docs/agent-reference/accounts-and-retry.md)的描述。
+
+### Fixed
+
+- 问题 #85 的诊断缺口：通用 HTTP（网络响应）错误分别保留经过长度和字符校验的 `code`（错误码）与 `type`（错误类型），不回显上游正文；三个传输协议的错误分类、重试及失败请求号契约保持一致。
+- 问题 #84：Messages（消息接口）端点以 403 加结构化 `permission_error`（权限错误）拒绝时，改用 CLI（命令行协议）直连 `/alpha/generate` 重试同一账号；触发面只认这一种标识，其余权限失败原样上报，且该回退不写入协议缓存。回退后仍失败时，错误文案以 CLI 结果为主并附先前的反代拒绝标识。核查日在本机 GOAT（`individual-goat`）账号实测：反代与 CLI 两条路径均正常返回，报告者的现象未能复现，本次按传输层缺口做防御性修复。
+- 修复八条 CodeQL（代码安全分析）告警对应位置：六处测试／引擎验证的网址判断改为解析后精确比较来源；价格维护脚本改用 HTML（网页标记）解析器提取文本。同时补齐逐模型价格覆盖校验，缺行、歧义名称、不可解析或未公开数值时拒绝候选快照，免费行明确核对零价，避免总覆盖率通过却遗漏个别模型。
+
 ## [0.13.1] - 2026-10-14
 
 ### Changed

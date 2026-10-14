@@ -4,7 +4,7 @@ import { CredentialRef } from "@deepseek-ai/dsh-credentials";
 import { TypertRemoteService, TypertSchema } from "@deepseek-ai/dsh-typert-protocol";
 import { WebRuntime, WebSearchProvider, WebSearchRequest, WebSearchResult } from "@deepseek-ai/dsh-web";
 import { Context } from "@deepseek-ai/cordis";
-import { AttachmentStore } from "@deepseek-ai/dsh-attachment";
+import { AttachmentStore, ImageAttachmentRef, ImageRequestTarget } from "@deepseek-ai/dsh-attachment";
 import { CommandDefinition } from "@deepseek-ai/dsh-commands";
 //#region src/provider-errors.d.ts
 /**
@@ -284,6 +284,8 @@ interface CommandCodeUsage {
   totalTokensOut: number;
   totalCredits: number;
   periodBasis: string;
+  /** 官方汇总返回的统计起点；缺失时不把查询参数当作已确认的统计范围。 */
+  periodStart?: number;
 }
 /** Credit/limit state from `/alpha/billing/credits`. */
 interface CommandCodeCredits {
@@ -338,6 +340,8 @@ interface CommandCodePlan {
   monthlyCredits: number | null;
   /** Billing period end in millis; 0 when the endpoint did not report one. */
   currentPeriodEnd: number;
+  /** 官方订阅账期起点，毫秒；旧宿主或未报告该字段时缺省。 */
+  currentPeriodStart?: number;
 }
 /**
  * Why every account endpoint failed at once (the report then carries no data
@@ -443,6 +447,25 @@ declare class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Comman
    * requirement — the meter throws when the counts differ.
    */
   imageRequestPricing(_provider: string, model: string): LlmImageRequestPricing | undefined;
+  /**
+   * The dimensions and byte target this route actually puts on the wire.
+   *
+   * The base default answers with the NORMALIZED original (`image.width`,
+   * `image.height`, `image.bytes`), which is right only for an adapter that
+   * does not resize. This route always re-encodes through
+   * `readImageRequest(ref, requestImageTarget(ref))` — long edge 1568, encoded
+   * bytes capped at 1 MiB — so the default would over-report both dimensions
+   * and bytes for every image, most visibly for Retina screenshots.
+   *
+   * `imageRequestPricing` above already prices at this same target; exposing it
+   * here keeps the harness's own readers (the CUA screenshot path calls
+   * `ctx.llm.imageRequestTarget`) consistent with what the gateway receives.
+   * @param _provider - registered provider route; one route per adapter here.
+   * @param _model - exact model id; the target is model-independent on this route.
+   * @param image - normalized attachment whose request projection is resolved.
+   * @returns the same target `readImageRequest` encodes to, before base64 expansion.
+   */
+  imageRequestTarget(_provider: string, _model: string, image: ImageAttachmentRef): ImageRequestTarget;
   listModels(provider: string, opts?: {
     unfiltered?: boolean;
   }): Promise<readonly LlmModelInfo[]>;
