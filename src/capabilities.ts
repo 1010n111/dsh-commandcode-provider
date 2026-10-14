@@ -4,7 +4,7 @@
  * subscription-plan labels, deals, and hourly (peak/off-peak) pricing.
  *
  * Everything here is synced from official sources — the command-code CLI
- * bundle's model table (`dist/cli.mjs`, re-verified at command-code@1.81.0) and
+ * bundle's model table (`dist/cli.mjs`, re-verified at command-code@1.82.1) and
  * the official plan/pricing/model docs; see the dsh-commandcode-upstream skill
  * for the extraction procedures. Keeping the snapshot in its own module
  * confines those frequent sync diffs here: src/adapter.ts holds only the stable
@@ -19,7 +19,7 @@ import { PLAN_LABELS, PLAN_ORDER } from './plan-tiers.ts'
 export { PLAN_LABELS, PLAN_ORDER } from './plan-tiers.ts'
 
 export const KNOWN_EFFORTS: Readonly<Record<string, readonly string[]>> = {
-  // Re-verified against the authoritative command-code@1.81.0 bundled model
+  // Re-verified against the authoritative command-code@1.82.1 bundled model
   // table (dist/cli.mjs, the provider effort map): exactly these models carry
   // selectable efforts. Models marked 'reasoning:!0' without efforts
   // (e.g. Tencent Hy3, GLM-5/5.1/5.2-Fast)
@@ -66,6 +66,10 @@ export const KNOWN_EFFORTS: Readonly<Record<string, readonly string[]>> = {
   'deepseek/deepseek-v4-flash': ['off', 'high', 'max'],
   'deepseek/deepseek-v4-flash-vision-exp': ['off', 'high', 'max'],
   'deepseek/deepseek-v4-pro': ['off', 'high', 'max'],
+  // command-code@1.82.0 ("Gemini Argon") and the only registry addition in the
+  // 1.81.0 -> 1.82.1 train. Three selectable levels, the same set the Gemini
+  // Flash family carries.
+  'google/gemini-4-argon': ['low', 'medium', 'high'],
   'google/gemini-3.1-flash-lite': ['low', 'medium', 'high'],
   'google/gemini-3.5-flash': ['low', 'medium', 'high'],
   'google/gemini-3.5-flash-lite': ['low', 'medium', 'high'],
@@ -207,6 +211,10 @@ export const KNOWN_IMAGE_MODELS: ReadonlySet<string> = new Set([
   'deepseek/deepseek-v4.1-flash',
   // command-code@1.67.0; Vision per the official registry and inputModalities.
   'deepseek/deepseek-v4.1-flash-fast',
+  // command-code@1.82.0; Vision per the official registry, the CLI's
+  // inputModalities:["text","image"] and the docs page's "Text input, Vision,
+  // Reasoning" capability label.
+  'google/gemini-4-argon',
   'google/gemini-3.1-flash-lite',
   'google/gemini-3.5-flash',
   'google/gemini-3.5-flash-lite',
@@ -275,7 +283,7 @@ export const KNOWN_IMAGE_MODELS: ReadonlySet<string> = new Set([
 
 /**
  * Models WITHOUT a zero-data-retention upstream, per the official CLI's own
- * registry (`command-code@1.81.0` `dist/cli.mjs`): `modelSupportsZdr(id)` is
+ * registry (`command-code@1.82.1` `dist/cli.mjs`): `modelSupportsZdr(id)` is
  * exactly `!nonZdrSet.has(canonicalize(id))`, and `knownModelSupportsZdr`
  * carries the same membership in the sibling route table — the UNION of both
  * is this set. Reading only the sibling route table dropped
@@ -334,7 +342,8 @@ export const KNOWN_NON_ZDR_MODELS: ReadonlySet<string> = new Set([
   'meta/muse-spark-1.3-contributor',
   // command-code@1.80.0. The CLI's exclusion set names it, so a ZDR request for
   // it is refused; the pricing page carries no ZDR note for this row, so the
-  // artifact is the evidence. 22 members as of 1.81.0.
+  // artifact is the evidence. 22 members as of 1.82.1 — Gemini 4 Argon, the
+  // only registry addition in the 1.81.0 -> 1.82.1 train, is NOT in the set.
   'meta/muse-wonder-1.0',
   'minimax/minimax-m3-free',
   'poolside/laguna-s-2.1-free',
@@ -476,11 +485,11 @@ export function requiresMessagesEndpoint(modelId: string): boolean {
  * **Generated — do not hand-edit.** `scripts/sync-output-limits.mjs` rewrites
  * this literal from models.dev; run it after a catalog sync, and use its
  * `--check` in CI. Command Code resells these models through their VENDOR's own
- * API, so the vendor's published ceiling is the value recorded: 76 of the 88
- * catalog ids as of 2026-10-13. Each row carries a comment naming the entry it
+ * API, so the vendor's published ceiling is the value recorded: 77 of the 89
+ * catalog ids as of 2026-10-14. Each row carries a comment naming the entry it
  * came from.
  *
- * Two of those 76 rest on more than a vendor lookup, both hand-recorded in the
+ * Two of those 77 rest on more than a vendor lookup, both hand-recorded in the
  * script's `MANUAL_CEILINGS`. `gpt-6.1-sol` (128000) comes from OpenAI's own row
  * and is corroborated by every other provider carrying it.
  * `inclusionai/ling-3.1-flash:free` (32768) has no models.dev row at all, so it
@@ -544,6 +553,8 @@ export const MODEL_OUTPUT_TOKEN_LIMITS: ReadonlyMap<string, number> = new Map([
   ['google/gemini-3.7-flash', 65536],
   // google
   ['google/gemini-3.8-flash', 65536],
+  // google
+  ['google/gemini-4-argon', 32768],
   // openai
   ['gpt-5.3-codex', 128000],
   // openai
@@ -680,12 +691,13 @@ export const DEFAULT_MESSAGES_MAX_TOKENS = 64_000
  * `/docs/plans/max` and `/docs/resources/pricing-limits`). Each plan's model
  * list is a superset of the one below it: Go ⊂ GOAT ⊂ Pro ⊂ Provider/Max.
  * Models absent from every plan list (Claude Opus/Fable, Fugu Ultra) are
- * Provider-tier. Re-verified at command-code@1.81.0 (2026-10-13): 88 catalog
- * ids at 54/64/78/86/88 cumulative, a strict superset chain. Mistral Large 4
+ * Provider-tier. Re-verified at command-code@1.82.1 (2026-10-14): 89 catalog
+ * ids at 54/64/79/87/89 cumulative, a strict superset chain. Mistral Large 4
  * (1.75.0) was the only addition at the 1.77.0 check; the 1.78.0/1.79.0 pair
  * added Claude Haiku 5.5 at Pro and the free Glyph Cluster preview at Go.
  * 1.79.2 lowers Haiku 5.5's minimum plan to GOAT; 1.80.0 adds Muse Wonder at
- * Max and nothing else moves. Every other tier is unchanged.
+ * Max; 1.82.0 adds Gemini 4 Argon at Pro and nothing else moves. Every other
+ * tier is unchanged.
  * The only removals since 1.49.0 are the two retired stealth previews (Pixel
  * Canary at 1.73.1, Space Bunny Alpha at 1.74.3). Per-entry tags below name the
  * releases that added or moved each row.
@@ -814,10 +826,13 @@ export const KNOWN_PLANS: Readonly<Record<string, string>> = {
   // command-code@1.62.0; GOAT and above, the same split as its Grok 4.7
   // sibling. Its two cheaper V2.6 siblings are Go, above.
   'xiaomi/mimo-v2.6-pro-ultraspeed': 'goat',
-  // --- Pro (14 more) ---
+  // --- Pro (15 more) ---
   'claude-haiku-4-5-20251001': 'pro',
   'claude-sonnet-4-6': 'pro',
   'claude-sonnet-5': 'pro',
+  // command-code@1.82.0; individual-go / go-v1 / goat all false, Pro and every
+  // higher tier true — one tier above the Gemini Flash family above it.
+  'google/gemini-4-argon': 'pro',
   'google/gemini-3.1-flash-lite': 'pro',
   'google/gemini-3.5-flash': 'pro',
   'google/gemini-3.5-flash-lite': 'pro',

@@ -19,11 +19,11 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
     themselves are NOT a reliable source since the 2026-09-30 reformat**: `/docs/plans/go|goat|pro` now emit
     a rendered `minPlanName` instead of an availability map, `/docs/plans/max` dropped its table entirely,
     and `/docs/plans/provider` became the Provider API reference. Strict superset chain; every catalog ID
-    covered exactly once (re-verified at command-code@1.81.0, 2026-10-13 — the public catalog serves 88
+    covered exactly once (re-verified at command-code@1.82.1, 2026-10-14 — the public catalog serves 89
     models: `stealth/pixel-canary` left it when 1.73.1 retired that stealth preview, `stealth/space-bunny-alpha`
     followed when 1.74.3 hid it, `mistral/mistral-large-4` joined in 1.75.0, the 1.78.0/1.79.0 pair added
-    `claude-haiku-5-5` on Pro and the free `stealth/glyph-cluster:free` on Go, and 1.80.0 added
-    `meta/muse-wonder-1.0` on Max. The retired previews above are
+    `claude-haiku-5-5` on Pro and the free `stealth/glyph-cluster:free` on Go, 1.80.0 added
+    `meta/muse-wonder-1.0` on Max, and 1.82.0 added `google/gemini-4-argon` on Pro. The retired previews above are
     Pixel Canary and Space Bunny Alpha; Glyph Cluster remains active.
     `gpt-6.1-sol` (1.71.0) was the first **`max`** member: every lower tier false, only
     `individual-max`/`individual-ultra`/`teams-pro` true; `meta/muse-wonder-1.0` (1.80.0) is the second.
@@ -35,6 +35,10 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
     above."，Go／GOAT／Pro／Provider 全部 false，仅 `individual-max`／`individual-ultra`／`teams-pro`
     为 true）；累计可见数由 54/64/78/86/87 变为 54/64/78/86/88。1.80.0 → 1.81.0 未移动任何模型分层、
     effort 档位或 ZDR 例外成员（1.81.0 的公开变更日志与包内 CHANGELOG 均未发布，结论来自产物级静态比对）。
+    1.82.0（"Gemini Argon"）新增 `google/gemini-4-argon`，最低套餐为 **Pro**（`individual-go`／
+    `individual-go-v1`／`individual-goat` 为 false，Pro 及以上全为 true），是 Gemini 家族首个高于 Flash
+    系列分层的成员；累计可见数由 54/64/78/86/88 变为 **54/64/79/87/89**。1.81.0 → 1.82.1 未移动任何
+    既有模型的分层或 effort 档位，ZDR 例外成员不变（`1.82.1` 无官方日志条目，结论同样来自产物级静态比对）。
     At command-code@1.77.0 (2026-10-07) the catalog served 85 and read 53/62/76/84/85, unchanged from
     the 1.74.1 check on 2026-10-03; at
     command-code@1.73.0 (2026-10-01) it served 86 and read 54/63/77/85/86.
@@ -129,13 +133,16 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
     the normalized id tail — Command Code namespaces the id, the vendor does not), the same entry with a
     `free` suffix dropped (both spellings occur: `inclusionai/ling-3.0-flash-sante:free` and
     `poolside/laguna-s-2.1-free`), then unanimity across every provider carrying the id.
-    **76 of 86 ids are recorded as of 2026-09-30**; each row carries a comment naming its source entry, and
-    the ten `claude-*` ids resolve to Anthropic's 128 000 (except `claude-haiku-4-5-20251001` at 64 000,
-    which is what `DEFAULT_MESSAGES_MAX_TOKENS` already guessed for the whole family — now confirmed rather
-    than assumed). The remaining 10 are models no vendor publishes yet
+    **Re-verified at command-code@1.82.1 (2026-10-14): 77 of 89 ids are recorded, 12 left to the runtime.**
+    Each row carries a comment naming its source entry, and the ten `claude-*` ids resolve to Anthropic's
+    128 000 (except `claude-haiku-4-5-20251001` at 64 000, which is what `DEFAULT_MESSAGES_MAX_TOKENS`
+    already guessed for the whole family — now confirmed rather than assumed). `google/gemini-4-argon`
+    (1.82.0) resolved from models.dev's own `google` row at 32 768.
+    The 12 unlisted ids are ones models.dev either lacks entirely or files inconsistently across providers
     (`Qwen/Qwen3.8-27B`, `Qwen/Qwen3.8-Max-0902`, `deepseek/deepseek-v4.1-flash`,
-    `deepseek/deepseek-v4.1-flash-fast`, `deepseek/deepseek-v4-flash-fast`, `moonshotai/Kimi-K2.5`,
-    `tencent/hy3-paid`, `tencent/hy4-preview`, `thinkingmachines/inkling-small`, `zai-org/GLM-5.2-Fast`),
+    `deepseek/deepseek-v4.1-flash-fast`, `deepseek/deepseek-v4-flash-fast`, `mistral/mistral-large-4`,
+    `moonshotai/Kimi-K2.5`, `stealth/glyph-cluster:free`, `tencent/hy3-paid`, `tencent/hy4-preview`,
+    `thinkingmachines/inkling-small`, `zai-org/GLM-5.2-Fast`),
     and they are served by the runtime instead: `streamRequest()` reads the ceiling off the endpoint's own
     refusal, retries once, and keeps it (issue #71). **That path is also what corrects a vendor figure the
     gateway turns out to be stricter than**, which is why an over-generous entry is tolerable and a
