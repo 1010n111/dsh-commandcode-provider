@@ -6,7 +6,7 @@ import { createAnalyticsReader, readAnalyticsHistory, ANALYTICS_SESSION_LIMIT, A
 import { parseAnalyticsQuery, parseAnalyticsReport } from '../src/analytics-wire.ts'
 import { modelPriceTable } from '../src/model-prices.ts'
 import { AnalyticsController } from '../src/client/analytics.ts'
-import { dateRange } from '../src/client/analytics-view.tsx'
+import { dateRange, knownCostShare } from '../src/client/analytics-view.tsx'
 import type { AnalyticsReport } from '../src/analytics-wire.ts'
 import type { CommandCodePriceTable } from '../src/usage-wire.ts'
 const off = Date.parse('2026-10-05T00:00:00Z'), peak = off + 2 * 3600000
@@ -124,6 +124,12 @@ test('日期包括截止日且无效日历日期不被自动滚入下月', () =>
   }
   assert.throws(() => dateRange('2026-02-30', '2026-03-01'))
   assert.throws(() => dateRange('2026-10-02', '2026-10-01'))
+})
+test('已知成本占比只使用计价小计，已知零成本与无占比保持区别', () => {
+  assert.equal(knownCostShare({ cost: .25, pricedRequests: 2 }, 1), 25)
+  assert.equal(knownCostShare({ cost: 0, pricedRequests: 1 }, 1), 0)
+  assert.equal(knownCostShare({ cost: 0, pricedRequests: 1 }, 0), null)
+  assert.equal(knownCostShare({ cost: 0, pricedRequests: 0 }, 1), null)
 })
 test('读取上限、继承边界缺失、取消与不可用宿主均可区分', async () => {
   let reads = 0

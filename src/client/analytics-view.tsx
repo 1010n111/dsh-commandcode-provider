@@ -1,6 +1,6 @@
 /** 只展示数字快照；筛选提交后才查询，页签、展开与模型筛选不触发历史读取。 */
 import { useEffect, useId, useState } from 'react'
-import type { KeyboardEvent } from 'react'
+import type { KeyboardEvent, ReactNode } from 'react'
 import type { AnalyticsMetrics, AnalyticsQuery, AnalyticsScenario } from '../analytics-wire.ts'
 import { parseAnalyticsQuery } from '../analytics-wire.ts'
 import type { AnalyticsState } from './analytics.ts'
@@ -34,8 +34,21 @@ function effortName(effort: string, text: Text): string {
 function Chevron() {
   return <svg className="ccp-analysisChevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
 }
-function Metric({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return <span className="ccp-analysisMetric"><span className="ccp-analysisLabel">{label}</span><span className="ccp-analysisValue">{value}</span>{sub ? <span className="ccp-analysisSub">{sub}</span> : null}</span>
+function AnalysisIcon({ kind }: { kind: 'info' | 'search' }) {
+  return <svg className="ccp-analysisIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{kind === 'info' ? <><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7h.01" /></> : <><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></>}</svg>
+}
+function Metric({ label, value, sub, children }: { label: string; value: string; sub?: string; children?: ReactNode }) {
+  return <span className="ccp-analysisMetric"><span className="ccp-analysisLabel ccp-analysisMetricLabel">{label}</span><span className="ccp-analysisValue">{value}</span>{sub ? <span className="ccp-analysisSub">{sub}</span> : null}{children}</span>
+}
+/** 只比较已知成本；没有计价样本或已知小计为零时，不制造百分比。 */
+export function knownCostShare(m: Pick<AnalyticsMetrics, 'cost' | 'pricedRequests'>, totalCost: number): number | null {
+  return m.pricedRequests > 0 && totalCost > 0 ? m.cost / totalCost * 100 : null
+}
+function CostShare({ m, totalCost, text }: { m: AnalyticsMetrics; totalCost: number; text: Text }) {
+  const share = knownCostShare(m, totalCost)
+  if (share === null) return <span className="ccp-analysisSub">{text('analysisNoShare')}</span>
+  const percentage = `${share.toFixed(1)}%`
+  return <span className="ccp-analysisShare" title={`${text('analysisShareHint')} ${percentage}`}><span className="ccp-analysisShareTrack" aria-hidden="true"><span className="ccp-analysisShareFill" style={{ width: `${Math.min(100, Math.max(0, share))}%` }} /></span><span className="ccp-analysisShareValue">{percentage}</span></span>
 }
 function DetailGroup({ title, values, text }: { title: AnalyticsKey; values: Array<[AnalyticsKey, string]>; text: Text }) {
   return <div className="ccp-analysisDetailGroup"><h4 className="ccp-analysisDetailTitle">{text(title)}</h4><dl className="ccp-analysisFacts">{values.map(([key, value]) => <div className="ccp-analysisFact" key={key}><dt className="ccp-analysisLabel">{text(key)}</dt><dd className="ccp-analysisFactValue">{value}</dd></div>)}</dl></div>
@@ -62,10 +75,10 @@ function MetricsDetails({ m, text }: { m: AnalyticsMetrics; text: Text }) {
     ]} />
   </div>
 }
-function ModelRow({ m, text }: { m: AnalyticsMetrics & { id: string }; text: Text }) {
+function ModelRow({ m, name, totalCost, text }: { m: AnalyticsMetrics & { id: string }; name: string | undefined; totalCost: number; text: Text }) {
   return <details className="ccp-analysisModelRow"><summary className="ccp-analysisModelSummary">
-    <span className="ccp-analysisIdentity"><span className="ccp-analysisModelName">{m.id}</span><span className="ccp-analysisSub">{text('analysisRequests')} {digits(m.requests)} · {text('analysisSessionCount')} {digits(m.sessions)}</span></span>
-    <Metric label={text('analysisCost')} value={m.pricedRequests ? money(m.cost) : text('analysisMissing')} sub={`${text('analysisPriced')} ${m.pricedRequests}/${m.requests}`} />
+    <span className="ccp-analysisIdentity"><span className="ccp-analysisModelName">{name || m.id}</span>{name && name !== m.id ? <span className="ccp-analysisSub">{m.id}</span> : null}<span className="ccp-analysisSub ccp-analysisModelCount">{text('analysisRequests')} {digits(m.requests)} · {text('analysisSessionCount')} {digits(m.sessions)}</span></span>
+    <Metric label={text('analysisCostShare')} value={m.pricedRequests ? money(m.cost) : text('analysisMissing')} sub={`${text('analysisPriced')} ${m.pricedRequests}/${m.requests}`}><CostShare m={m} totalCost={totalCost} text={text} /></Metric>
     <Metric label={text('analysisResponse')} value={meanSeconds(m.latencyMs, m.latencySamples, text)} />
     <Metric label={text('analysisFirstToken')} value={meanSeconds(m.ttftMs, m.ttftSamples, text)} />
     <Metric label={text('analysisSpeed')} value={speed(m, text)} />
@@ -75,9 +88,9 @@ function ModelRow({ m, text }: { m: AnalyticsMetrics & { id: string }; text: Tex
 function ScenarioRow({ m, text }: { m: AnalyticsScenario; text: Text }) {
   return <details className="ccp-analysisModelRow"><summary className="ccp-analysisScenarioSummary">
     <span className="ccp-analysisIdentity"><span className="ccp-analysisModelName">{m.name}</span><span className="ccp-analysisSub">{m.id}</span></span>
-    <Metric label={text('analysisCost')} value={m.pricedRequests ? money(m.cost) : text('analysisMissing')} sub={`${text('analysisPriced')} ${m.pricedRequests}/${m.pricedRequests + m.excludedRequests + m.unknownRequests}`} />
-    <Metric label={text('analysisContext')} value={m.contextWindow === null ? text('analysisMissing') : digits(m.contextWindow)} />
-    <span className="ccp-analysisCapability">{text(m.images ? 'analysisImages' : 'analysisTextOnly')}</span><Chevron />
+    <Metric label={text('analysisSimulationCost')} value={m.pricedRequests ? money(m.cost) : text('analysisMissing')} sub={text('analysisUsd')} />
+    <Metric label={text('analysisCoverage')} value={`${m.pricedRequests}/${m.pricedRequests + m.excludedRequests + m.unknownRequests}`} sub={`${text('analysisExcluded')} ${digits(m.excludedRequests)} · ${text('analysisUnknownPrice')} ${digits(m.unknownRequests)}`} />
+    <Metric label={text('analysisCapabilities')} value={m.contextWindow === null ? text('analysisMissing') : `${digits(m.contextWindow)} ${text('analysisTokenUnit')}`} sub={text(m.images ? 'analysisImages' : 'analysisTextOnly')} /><Chevron />
   </summary><div className="ccp-analysisDetails ccp-analysisScenarioDetails">
     <DetailGroup title="analysisSamples" text={text} values={[
       ['analysisPriced', digits(m.pricedRequests)], ['analysisExcluded', digits(m.excludedRequests)], ['analysisUnknownPrice', digits(m.unknownRequests)],
@@ -113,13 +126,15 @@ export function AnalyticsView(props: AnalyticsViewProps) {
     event.currentTarget.querySelector<HTMLButtonElement>(`[data-page="${next}"]`)?.focus()
   }
   const scenarios = report?.scenarios.filter(m => `${m.id} ${m.name}`.toLowerCase().includes(filter.trim().toLowerCase())) ?? []
+  // 名称来自同一份试算目录；目录缺失时保留历史标识，不另读模型接口。
+  const names = new Map(report?.scenarios.map(m => [m.id, m.name]))
   const m = report?.totals
   return <section className="ccp-analysis" aria-label={text('analyticsNav')} aria-busy={busy}>
-    <form className="ccp-analysisFilters" noValidate onSubmit={e => { e.preventDefault(); if (!busy) apply() }}>
+    <form className="ccp-analysisFilters" data-mode={mode} noValidate onSubmit={e => { e.preventDefault(); if (!busy) apply() }}>
       <label className="ccp-analysisField ccp-analysisScopeField">{text('analysisScope')}<span className="ccp-analysisSelectShell"><select className="ccp-analysisInput ccp-analysisSelect" value={mode} disabled={busy} onChange={e => setMode(e.target.value as 'recent' | 'range')}><option value="recent">{text('analysisRecent')}</option><option value="range">{text('analysisRange')}</option></select><Chevron /></span></label>
       {mode === 'recent' ? <label className="ccp-analysisField">{text('analysisLimit')}<input className="ccp-analysisInput" type="number" min="1" max="100" required value={limit} disabled={busy} onChange={e => setLimit(e.target.value)} /></label> : <>
-        <label className="ccp-analysisField">{text('analysisFrom')}<input className="ccp-analysisInput" type="date" required value={from} disabled={busy} onChange={e => setFrom(e.target.value)} /></label>
-        <label className="ccp-analysisField">{text('analysisTo')}<input className="ccp-analysisInput" type="date" required value={to} disabled={busy} onChange={e => setTo(e.target.value)} /></label>
+        <label className="ccp-analysisField ccp-analysisDateField">{text('analysisFrom')}<input className="ccp-analysisInput" type="date" required value={from} disabled={busy} onChange={e => setFrom(e.target.value)} /></label>
+        <label className="ccp-analysisField ccp-analysisDateField">{text('analysisTo')}<input className="ccp-analysisInput" type="date" required value={to} disabled={busy} onChange={e => setTo(e.target.value)} /></label>
       </>}
       <button className="ccp-analysisApply" type="submit" disabled={busy}>{text('analysisApply')}</button>
     </form>
@@ -136,22 +151,22 @@ export function AnalyticsView(props: AnalyticsViewProps) {
         <Metric label={text('analysisFirstToken')} value={meanSeconds(m.ttftMs, m.ttftSamples, text)} sub={`${text('analysisFirstTokenSamples')} ${digits(m.ttftSamples)}`} />
       </div>
       <p className="ccp-analysisNote">{text('analysisShortBasis')}</p>
-      {report.truncated || report.unreadableSessions > 0 || report.skippedSessions > 0 ? <p className="ccp-analysisMessage ccp-analysisWarning" role="status">{text('analysisPartial')}</p> : null}
-      {m.pricedRequests < m.requests ? <p className="ccp-analysisMessage ccp-analysisWarning" role="status">{text('analysisUnpriced')}</p> : null}
+      {report.truncated || report.unreadableSessions > 0 || report.skippedSessions > 0 || m.pricedRequests < m.requests ? <div className="ccp-analysisMessage ccp-analysisWarning" role="status"><AnalysisIcon kind="info" /><div>{report.truncated || report.unreadableSessions > 0 || report.skippedSessions > 0 ? <p>{text('analysisPartial')}</p> : null}{m.pricedRequests < m.requests ? <p>{text('analysisUnpriced')}</p> : null}</div></div> : null}
       <div className="ccp-analysisTabs" role="tablist" aria-label={text('analysisSections')} onKeyDown={navigateTab}>
-        {(['history', 'simulation'] as const).map(tab => <button className="ccp-analysisTab" key={tab} id={`${id}-${tab}-tab`} data-page={tab} type="button" role="tab" aria-selected={page === tab} aria-controls={`${id}-${tab}`} tabIndex={page === tab ? 0 : -1} onClick={() => setPage(tab)}>{text(tab === 'history' ? 'analysisHistory' : 'analysisSimulation')}</button>)}
+        {(['history', 'simulation'] as const).map(tab => <button className="ccp-analysisTab" key={tab} id={`${id}-${tab}-tab`} data-page={tab} type="button" role="tab" aria-selected={page === tab} aria-controls={`${id}-${tab}`} tabIndex={page === tab ? 0 : -1} onClick={() => setPage(tab)}>{text(tab === 'history' ? 'analysisHistory' : 'analysisSimulation')}<span className="ccp-analysisTabCount">{digits(tab === 'history' ? report.models.length : report.scenarios.length)}</span></button>)}
       </div>
       <section className="ccp-analysisPanel" id={`${id}-history`} role="tabpanel" aria-labelledby={`${id}-history-tab`} tabIndex={0} hidden={page !== 'history'}>
         <div className="ccp-analysisSectionHead"><h3 className="ccp-analysisHeading">{text('analysisByModel')}</h3><p className="ccp-analysisNote">{text('analysisModelHint')}</p></div>
-        {m.requests === 0 ? <p className="ccp-analysisEmpty">{text('analysisEmpty')}</p> : <div className="ccp-analysisModels">{report.models.map(model => <ModelRow key={model.id} m={model} text={text} />)}</div>}
-        <details className="ccp-analysisAggregate"><summary className="ccp-analysisDisclosure"><Chevron />{text('analysisDetails')}</summary><MetricsDetails m={m} text={text} /></details>
-        <div className="ccp-analysisMonthly"><span>{text('analysisMonthly')}</span><strong className="ccp-analysisMonthlyValue">{report.monthlyEstimate === null || report.truncated || report.unreadableSessions || report.skippedSessions ? text('analysisMissing') : money(report.monthlyEstimate)}</strong><p className="ccp-analysisNote">{text('analysisMonthlyHint')}</p></div>
+        {m.requests === 0 ? <p className="ccp-analysisEmpty">{text('analysisEmpty')}</p> : <div className="ccp-analysisModels"><div className="ccp-analysisTableHead" aria-hidden="true"><span>{text('analysisModel')}</span><span>{text('analysisCostShare')}</span><span>{text('analysisResponse')}</span><span>{text('analysisFirstToken')}</span><span>{text('analysisSpeed')}</span><span /></div>{report.models.map(model => <ModelRow key={model.id} m={model} name={names.get(model.id)} totalCost={m.cost} text={text} />)}</div>}
+        <div className="ccp-analysisFooter"><details className="ccp-analysisAggregate"><summary className="ccp-analysisDisclosure"><Chevron />{text('analysisDetails')}</summary><MetricsDetails m={m} text={text} /></details>
+          <div className="ccp-analysisMonthly"><span>{text('analysisMonthly')}</span><strong className="ccp-analysisMonthlyValue">{report.monthlyEstimate === null || report.truncated || report.unreadableSessions || report.skippedSessions ? text('analysisMissing') : money(report.monthlyEstimate)}</strong><p className="ccp-analysisNote">{text('analysisMonthlyHint')}</p></div>
+        </div>
       </section>
       <section className="ccp-analysisPanel" id={`${id}-simulation`} role="tabpanel" aria-labelledby={`${id}-simulation-tab`} tabIndex={0} hidden={page !== 'simulation'}>
         <p className="ccp-analysisAssumption">{text('analysisAssumption')}</p>
         {report.catalogUnavailable ? <p className="ccp-analysisMessage ccp-analysisWarning" role="status">{text('analysisCatalog')}</p> : null}
-        <label className="ccp-analysisField ccp-analysisSearch">{text('analysisSearch')}<input className="ccp-analysisInput" type="search" placeholder={text('analysisSearchPlaceholder')} value={filter} onChange={e => setFilter(e.target.value)} /></label>
-        {m.requests === 0 ? <p className="ccp-analysisEmpty">{text('analysisEmpty')}</p> : scenarios.length ? <div className="ccp-analysisModels">{scenarios.map(model => <ScenarioRow key={model.id} m={model} text={text} />)}</div> : !report.catalogUnavailable ? <p className="ccp-analysisEmpty" role="status">{text('analysisNoMatches')}</p> : null}
+        <div className="ccp-analysisSectionHead"><div><h3 className="ccp-analysisHeading">{text('analysisSimulationHeading')}</h3><p className="ccp-analysisNote">{text('analysisSimulationHint')}</p></div><label className="ccp-analysisField ccp-analysisSearch"><span className="ccp-analysisSearchLabel">{text('analysisSearch')}</span><span className="ccp-analysisSearchShell"><AnalysisIcon kind="search" /><input className="ccp-analysisInput" type="search" placeholder={text('analysisSearchPlaceholder')} value={filter} onChange={e => setFilter(e.target.value)} /></span></label></div>
+        {m.requests === 0 ? <p className="ccp-analysisEmpty">{text('analysisEmpty')}</p> : scenarios.length ? <div className="ccp-analysisModels"><div className="ccp-analysisTableHead ccp-analysisScenarioHead" aria-hidden="true"><span>{text('analysisModel')}</span><span>{text('analysisSimulationCost')}</span><span>{text('analysisCoverage')}</span><span>{text('analysisCapabilities')}</span><span /></div>{scenarios.map(model => <ScenarioRow key={model.id} m={model} text={text} />)}</div> : !report.catalogUnavailable ? <p className="ccp-analysisEmpty" role="status">{text('analysisNoMatches')}</p> : null}
       </section>
       <details className="ccp-analysisRules"><summary className="ccp-analysisDisclosure"><Chevron />{text('analysisRules')}</summary><div className="ccp-analysisRulesBody"><p>{text('analysisBasis')}</p><p>{text('analysisCoverageHint')}</p></div></details>
     </> : null}

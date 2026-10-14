@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1] - 2026-10-14
+
+### Changed
+
+- 模型分析第二版沿用宿主字体、语义主题、按钮与分段控件，统一筛选控件高度、卡片和明细布局。历史与价格试算分别呈现，可在窄面板中恢复逐指标标签和两列分组，保留键盘页签、展开及缺失提示；不改变统计口径、后端契约或历史读取时机。
+- 历史模型显示名称与已知成本占比，名称复用同一报告的试算目录，比例为模型已知成本除以全部已知成本小计；没有计价样本或零小计时显示“无占比”，已知零成本仍显示零金额。价格试算单独展示计价覆盖、超上下文与未知数量，明确不同覆盖的金额不能直接比较。新增占比边界回归用例，生成客户端产物与实现说明同步。
+- npm 发布改用 GitHub Actions（自动化工作流）手动触发的 Trusted Publishing（可信发布），通过 OIDC（开放身份连接）认证，不保存长期发布令牌。工作流默认仅检查，实际发布须显式开启；校验版本标签、仓库、构建产物及重复版本，并执行全部发布检查后上传同一发布包。
+
 ## [0.13.0] - 2026-10-14
 
 ### Added

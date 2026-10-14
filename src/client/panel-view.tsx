@@ -340,7 +340,7 @@ export function CommandCodePanel(props: PanelComponentProps) {
         <header className="ccp-header">
           <div className="ccp-headerText">
             <h2 className="ccp-title">{mode === 'analysis' ? `Command Code · ${text('analyticsNav')}` : text('nav')}</h2>
-            {mode === 'quota' ? <p className="ccp-subtitle">{text('subtitle')}</p> : null}
+            <p className="ccp-subtitle">{text(mode === 'quota' ? 'subtitle' : 'analysisIntro')}</p>
           </div>
           <span className="ccp-spacer" />
           {mode === 'quota' && view.updatedAt !== '' ? <span className="ccp-meta">{text('updated')} {view.updatedAt}</span> : null}
