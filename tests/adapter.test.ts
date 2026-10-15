@@ -2565,6 +2565,92 @@ test('listModels() annotates catalog models with plan, deal, Image, context', as
   )
 })
 
+test('resolveModel() and listModels() honor custom context lengths (issue #86)', async () => {
+  // A dedicated cache path keeps this test free of any on-disk catalog cache.
+  const cachePath = join(tmpdir(), `cc-ctx-${process.pid}-${Date.now()}.json`)
+  try {
+    const catalog = {
+      object: 'list',
+      data: [
+        { id: 'claude-sonnet-5', name: 'Claude Sonnet 5', context_length: 1_000_000 },
+        { id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', context_length: 1_000_000 },
+      ],
+    }
+    const adapter = makeAdapter({
+      fetchImpl: fetchReturning(200, JSON.stringify(catalog)),
+      options: () => ({
+        apiBase: 'https://api.commandcode.ai',
+        workingDir: '/tmp/project',
+        modelsCachePath: cachePath,
+        requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+        streamIdleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+        protocol: 'cli' as const,
+        // The global custom window, with one model overridden on top of it.
+        contextWindow: 64_000,
+        contextWindowOverrides: { 'claude-sonnet-5': 32_000 },
+      }),
+    })
+    // The per-model override wins over the global value, both over the catalog.
+    const perModel = await adapter.resolveModel('commandcode', 'claude-sonnet-5')
+    assert.deepEqual(perModel.context, { contextWindow: 32_000 })
+    // The output budget follows the ADVERTISED window the same way the catalog
+    // derives it (min(window, published ceiling)) — 32k here, not the family's
+    // 128 000-published ceiling.
+    assert.equal(perModel.defaultMaxTokens, 32_000)
+    assert.ok(perModel.description !== undefined)
+    assert.match(perModel.description, /^Pro · Image · 32K$/)
+    // The global value covers every model without its own row.
+    const global = await adapter.resolveModel('commandcode', 'deepseek/deepseek-v4-flash')
+    assert.deepEqual(global.context, { contextWindow: 64_000 })
+    // The custom 64 000 clamps this model's 393 216 published ceiling: without
+    // the override the budget would be min(393 216, DEFAULT 131 072).
+    assert.equal(global.defaultMaxTokens, 64_000)
+    // An unknown model has no catalog entry, so it stays without a context
+    // advertisement even while a global override is configured.
+    const unknown = await adapter.resolveModel('commandcode', 'some-future-model')
+    assert.equal(unknown.context, undefined)
+    // The picker annotation reports the custom window, not the catalog's 1M.
+    const models = await adapter.listModels('commandcode')
+    const byId = new Map(models.map((m) => [m.id, m]))
+    assert.ok(byId.get('claude-sonnet-5')!.description !== undefined)
+    assert.match(byId.get('claude-sonnet-5')!.description!, /· 32K$/)
+    assert.ok(byId.get('deepseek/deepseek-v4-flash')!.description !== undefined)
+    assert.match(byId.get('deepseek/deepseek-v4-flash')!.description!, /· 64K$/)
+  } finally {
+    rmSync(cachePath, { force: true })
+  }
+})
+
+test('custom context lengths fall back to the catalog when a value is out of bounds', async () => {
+  const cachePath = join(tmpdir(), `cc-ctx-bad-${process.pid}-${Date.now()}.json`)
+  try {
+    const catalog = {
+      object: 'list',
+      data: [{ id: 'deepseek/deepseek-v4-flash', name: 'DeepSeek V4 Flash', context_length: 1_000_000 }],
+    }
+    // A programmatically built config can bypass Schemastery; `resolveAdapterOptions`
+    // cleans the normal path, and `effectiveContextWindow` re-judges here so a
+    // garbage window never reaches the harness.
+    const adapter = makeAdapter({
+      fetchImpl: fetchReturning(200, JSON.stringify(catalog)),
+      options: () => ({
+        apiBase: 'https://api.commandcode.ai',
+        workingDir: '/tmp/project',
+        modelsCachePath: cachePath,
+        requestTimeoutMs: DEFAULT_REQUEST_TIMEOUT_MS,
+        streamIdleTimeoutMs: DEFAULT_STREAM_IDLE_TIMEOUT_MS,
+        protocol: 'cli' as const,
+        contextWindow: 0,
+        contextWindowOverrides: { 'deepseek/deepseek-v4-flash': -1 },
+      }),
+    })
+    const resolved = await adapter.resolveModel('commandcode', 'deepseek/deepseek-v4-flash')
+    assert.deepEqual(resolved.context, { contextWindow: 1_000_000 })
+  } finally {
+    rmSync(cachePath, { force: true })
+  }
+})
+
 test('catalog and window probes ask for uncompressed Command Code responses', async () => {
   const paths: string[] = []
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {

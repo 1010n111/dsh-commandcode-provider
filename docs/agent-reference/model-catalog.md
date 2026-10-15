@@ -180,6 +180,13 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
     peak/off-peak state (`Peak`/`Half`, hourly-priced models only) · `Image` (Vision only) · context
     (`formatContext()`: `1M`/`256K`/`262K`). Text-only models show no capability marker. Do not reintroduce
     "Text only" or "Supports image input".
+  - **自定义上下文长度（issue #86）**：`resolveModel()` 与 `listModels()` 宣告的窗口是
+    `effectiveContextWindow(catalog, model, connection)`——`contextWindowOverrides`（按模型）→
+    `contextWindow`（全局）→ 目录 `context_length`——选择器标注与宿主的 `context.contextWindow`
+    用同一个值；`defaultMaxTokens` 把该值纳入 `min`（`Math.min(entry.maxTokens, window,
+    DEFAULT_GENERATE_MAX_TOKENS)`），调小的自定义窗口同样压低输出预算，调大仍受公布值与运行时
+    学习上限约束。无目录条目的未知模型保持无 `context` 宣告。边界与清洗在 `src/context-window.ts`
+    （与设置页共用），适配器在程序化构造绕过 schemastery 时仍二次判定，坏值回落目录。
   - The picker list is **sorted free models first, then by plan tier, then name** (`compareByPlan()` in
     `src/capabilities.ts`; free = `KNOWN_DEALS` `free: true` via `isFreeModel()`, tier weights in
     `PLAN_ORDER`): FREE → Go → GOAT → Pro → Provider → Max, alphabetical within each group, unknown plans

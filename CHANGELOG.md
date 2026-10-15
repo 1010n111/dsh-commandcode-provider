@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- 支持**自定义上下文长度**（issue #86）：新增 `contextWindow`（全局值）与 `contextWindowOverrides`（按模型覆盖，键为目录模型 id）两个配置项，覆盖宣告给宿主的上下文窗口——上下文计量、自动压缩时机、模型选择器的上下文标注与 `defaultMaxTokens` 输出预算都按解析结果计算，解析顺序为**按模型 → 全局 → 目录 `context_length`**，不填则完全跟随目录。设置页新增「上下文长度」分组：全局值为普通数值字段，按模型覆盖为「模型 + token 数」行列表，随保存栏与其他字段同批写入（清空写入空表以遮蔽基础层）。取值范围 1 – 10 000 000 token，非法条目静默失效并回落目录，未知模型保持无 `context` 宣告；边界与清洗由 Host 与浏览器设置页共用的 `src/context-window.ts` 判定。适配器把调小的窗口同样压低输出预算（沿用目录 `min(窗口, 公布/学习上限)` 的推导方式）。设置页交互：数值输入接受 `32K`/`1M` 简写（**二进制**换算，×1024 / ×1024²，如 128K = 131 072、1M = 1 048 576，越界仍报边界文案，落盘永远是数字）；按模型覆盖的模型下拉只列出**模型白名单**中的可见模型（显示全部时即整个目录），行列表带「模型 / 上下文长度」列头，下拉框以 `appearance:none` + 自绘 caret 替换平台原生箭头（与选择器 caret 同形）。
+
 ## [0.13.3] - 2026-10-15
 
 ### Changed
