@@ -105,13 +105,14 @@ const normalizeId = (id) => id.toLowerCase().replace(/[^a-z0-9]/g, '')
  * it rests on, and every entry is visited by the runtime anyway: a wrong value
  * costs one refused request, then `streamRequest()` remembers the real ceiling.
  *
- * - `inclusionai/ling-3.1-flash:free` (command-code@1.70.0): models.dev has no
- *   `ling-3.1` row at all as of 2026-09-30 — the Ling family's newest entry is
- *   `ling-3.0-flash`, which every provider that carries it files at exactly
- *   32768 output (`openrouter`, `kilo`, `nano-gpt`, `deepinfra`, `novita-ai`).
- *   32768 is therefore the family's established ceiling and the 3.1 inherits it
- *   rather than starting at DEFAULT_MESSAGES_MAX_TOKENS. Recorded deliberately:
- *   it is one uniform family-wide figure, not a split vote.
+ * - `inclusionai/ling-3.1-flash:free` (command-code@1.70.0) left this map on
+ *   2026-10-15. It used to carry a hand-recorded 32768 because models.dev had
+ *   no `ling-3.1` row and the Ling family's newest entry `ling-3.0-flash` is
+ *   filed at exactly 32768 by every provider carrying it (`openrouter`, `kilo`,
+ *   `nano-gpt`, `deepinfra`, `novita-ai`). command-code@1.82.2 retires the
+ *   promo — hidden row, no effort list, gone from `/provider/v1/models` and the
+ *   pricing page — so the id left `KNOWN_PLANS`, this table is no longer
+ *   generated for it, and there is nothing left to pin.
  *
  * - `inclusionai/ling-3.0-flash-sante:free` (command-code@1.81.0 check): this
  *   row USED to resolve on its own as "2 provider(s), unanimous" (32768). It
@@ -121,14 +122,13 @@ const normalizeId = (id) => id.toLowerCase().replace(/[^a-z0-9]/g, '')
  *   vendor-first rule falls through; (b) the third-party rows are no longer
  *   unanimous — `kilo`, `novita-ai` and `openrouter` file 32768 while `vercel`
  *   files 32000, so rule 3 declines to guess. 32768 is still the right figure:
- *   it is the Ling family's established ceiling (the same one the 3.1 inherits
- *   below) and carries a 3-to-1 majority. Pinned here so a regeneration does
- *   not silently drop a LIVE model's ceiling back to the 131072 default — the
- *   model is still in the public catalog, still Go-tier, still free, and still
- *   reachable from the picker.
+ *   it is the Ling family's established ceiling (the same one the retired 3.1
+ *   free promo inherited) and carries a 3-to-1 majority. Pinned here so a
+ *   regeneration does not silently drop a LIVE model's ceiling back to the
+ *   131072 default — the model is still in the public catalog, still Go-tier,
+ *   still free, and still reachable from the picker.
  */
 const MANUAL_CEILINGS = {
-  'inclusionai/ling-3.1-flash:free': { value: 32768, via: 'manual: no models.dev row; Ling family ceiling 32768, see MANUAL_CEILINGS' },
   'inclusionai/ling-3.0-flash-sante:free': { value: 32768, via: 'manual: no vendor row and no longer unanimous (vercel 32000); Ling family ceiling 32768, see MANUAL_CEILINGS' },
 }
 

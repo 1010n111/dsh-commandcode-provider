@@ -5583,10 +5583,15 @@ test('known thinking snapshot covers reasoning models without effort levels', ()
   assert.ok(KNOWN_THINKING_MODELS.has('meituan/LongCat-2.0'))
   assert.ok(!KNOWN_THINKING_MODELS.has('meituan/LongCat-2.0:free'))
   assert.ok(KNOWN_THINKING_MODELS.has('inclusionai/ling-3.0-flash-sante:free'))
-  // command-code@1.70.0: Ling 3.1 Flash gained selectable efforts, so it moved
-  // OUT of this set and into KNOWN_EFFORTS — its free predecessor did not.
-  assert.ok(!KNOWN_THINKING_MODELS.has('inclusionai/ling-3.1-flash:free'))
-  assert.deepEqual(KNOWN_EFFORTS['inclusionai/ling-3.1-flash:free'], ['low', 'medium', 'high'])
+  // command-code@1.82.2: the `ling-3.1-flash:free` promo is retired — the CLI
+  // ships the row `hidden`, drops its effort list, and the model left both the
+  // public catalog and the pricing page — so no table in the snapshot names it
+  // any more. Its paid graduation keeps the same three selectable levels, which
+  // is why it sits in KNOWN_EFFORTS and not here.
+  assert.ok(!KNOWN_THINKING_MODELS.has('inclusionai/ling-3.1-flash'))
+  assert.equal(KNOWN_THINKING_MODELS.has('inclusionai/ling-3.1-flash:free'), false)
+  assert.deepEqual(KNOWN_EFFORTS['inclusionai/ling-3.1-flash'], ['low', 'medium', 'high'])
+  assert.equal(KNOWN_EFFORTS['inclusionai/ling-3.1-flash:free'], undefined)
   assert.ok(!KNOWN_THINKING_MODELS.has('meta/muse-spark-1.3'))
   assert.ok(!KNOWN_THINKING_MODELS.has('meta/muse-spark-1.3-contributor'))
   assert.ok(!KNOWN_EFFORTS['meituan/LongCat-2.0'])
@@ -5785,9 +5790,12 @@ test('known plan snapshot tiers models by the official plan pages', () => {
   // member — one tier ABOVE the Flash models, which stay on Go/GOAT.
   assert.equal(KNOWN_PLANS['google/gemini-4-argon'], 'pro')
   assert.equal(planLabel('google/gemini-4-argon'), 'Pro')
-  // command-code@1.70.0: Ling 3.1 Flash is free on every plan including Go.
-  assert.equal(KNOWN_PLANS['inclusionai/ling-3.1-flash:free'], 'go')
-  assert.equal(planLabel('inclusionai/ling-3.1-flash:free'), 'Go')
+  // command-code@1.82.2: the paid `ling-3.1-flash` inherits the retired promo's
+  // Go slot — the pricing page still grants every tier (individual-go through
+  // teams-pro).
+  assert.equal(KNOWN_PLANS['inclusionai/ling-3.1-flash'], 'go')
+  assert.equal(planLabel('inclusionai/ling-3.1-flash'), 'Go')
+  assert.equal(KNOWN_PLANS['inclusionai/ling-3.1-flash:free'], undefined)
   // Labels match the official tier names.
   assert.equal(planLabel('MiniMaxAI/MiniMax-M3'), 'Go')
   assert.equal(planLabel('claude-sonnet-5'), 'Pro')
@@ -5821,12 +5829,13 @@ test('known deals snapshot has anchors and expiry-aware labels', () => {
   // pricing page dropped it: the entry is REMOVED rather than left to lapse, so
   // it never badges a model the catalog now serves at its list price.
   assert.equal(KNOWN_DEALS['xai/grok-4.7'], undefined)
-  // Ling 3.1 Flash (command-code@1.70.0) is free "while it lasts" like its
-  // `ling-3.0-flash-sante:free` predecessor — permanent-style, so no expiresAt.
-  assert.equal(KNOWN_DEALS['inclusionai/ling-3.1-flash:free']?.label, 'FREE')
-  assert.equal(KNOWN_DEALS['inclusionai/ling-3.1-flash:free']?.free, true)
-  assert.equal(KNOWN_DEALS['inclusionai/ling-3.1-flash:free']?.expiresAt, undefined)
-  assert.equal(isFreeModel('inclusionai/ling-3.1-flash:free'), true)
+  // Ling 3.1 Flash's free "while it lasts" promo (command-code@1.70.0) ended
+  // with command-code@1.82.2: the row is hidden, it left the pricing page, and
+  // its paid graduation is priced normally — so the FREE entry is REMOVED rather
+  // than left to badge a model that is no longer free.
+  assert.equal(KNOWN_DEALS['inclusionai/ling-3.1-flash:free'], undefined)
+  assert.equal(KNOWN_DEALS['inclusionai/ling-3.1-flash'], undefined)
+  assert.equal(isFreeModel('inclusionai/ling-3.1-flash'), false)
   // command-code@1.79.0; the free Glyph Cluster preview carries the same
   // permanent-style terms as its Ling predecessors — 100% off "Free while the
   // preview lasts" with no published end date, so no `expiresAt` to lapse.
@@ -5867,8 +5876,9 @@ test('dealLabel() hides a deal after its expiry date', () => {
   assert.equal(dealLabel('xai/grok-4.7', Date.parse('2026-09-21T00:00:00Z')), undefined)
   assert.equal(dealLabel('xai/grok-4.7', Date.parse('2026-09-27T12:00:00Z')), undefined)
   assert.equal(dealLabel('xai/grok-4.7', Date.parse('2026-09-28T00:00:00Z')), undefined)
-  // Ling 3.1 Flash is permanent-style, so every clock still reads FREE.
-  assert.equal(dealLabel('inclusionai/ling-3.1-flash:free', Date.parse('2030-01-01T00:00:00Z')), 'FREE')
+  // Ling 3.1 Flash's promo is gone, so there is no label at any time.
+  assert.equal(dealLabel('inclusionai/ling-3.1-flash:free', Date.parse('2030-01-01T00:00:00Z')), undefined)
+  assert.equal(dealLabel('inclusionai/ling-3.1-flash', Date.parse('2030-01-01T00:00:00Z')), undefined)
   assert.equal(dealLabel('claude-sonnet-5'), undefined)
   // Gemini 3.7 Flash's deal was retired: no label at any time.
   assert.equal(dealLabel('google/gemini-3.7-flash', Date.parse('2026-12-31T12:00:00Z')), undefined)
@@ -6060,7 +6070,7 @@ test('CLI version and API base constants are stable', () => {
   // record — what each upstream version added and what was re-verified unchanged — lives
   // in CHANGELOG.md (whose newest published entry may lag the pinned constant); this
   // assertion pins the constant only.
-  assert.equal(COMMAND_CODE_CLI_VERSION, '1.82.1')
+  assert.equal(COMMAND_CODE_CLI_VERSION, '1.82.2')
   assert.equal(DEFAULT_API_BASE, 'https://api.commandcode.ai')
 })
 
@@ -7677,13 +7687,16 @@ test('every new-arrival model carries an output ceiling or is left to runtime le
   // compacted a healthy session. A catalog arrival therefore either gets a ceiling
   // here or must be one the runtime learns from the refusal — never neither.
   assert.equal(MODEL_OUTPUT_TOKEN_LIMITS.get('gpt-6.1-sol'), 128000)
-  // Hand-recorded: models.dev has no `ling-3.1` row yet (see MANUAL_CEILINGS in
-  // scripts/sync-output-limits.mjs), so this takes the Ling family's uniform 32768
-  // rather than starting at DEFAULT_MESSAGES_MAX_TOKENS.
-  assert.equal(MODEL_OUTPUT_TOKEN_LIMITS.get('inclusionai/ling-3.1-flash:free'), 32768)
+  // command-code@1.82.2: the paid `ling-3.1-flash` files three conflicting
+  // provider values in models.dev, so the generator deliberately leaves it to
+  // runtime learning (rule 4 of scripts/sync-output-limits.mjs) instead of
+  // pinning a guess; the retired `:free` row left `KNOWN_PLANS`, so the table is
+  // no longer generated for it at all.
+  assert.equal(MODEL_OUTPUT_TOKEN_LIMITS.get('inclusionai/ling-3.1-flash'), undefined)
+  assert.equal(MODEL_OUTPUT_TOKEN_LIMITS.get('inclusionai/ling-3.1-flash:free'), undefined)
   // A ceiling is a CEILING, not a window: both are far below their own context,
   // which is the whole point of the table — deriving `max_tokens` from
   // `context_length` is exactly what produced #71.
   assert.ok(MODEL_OUTPUT_TOKEN_LIMITS.get('gpt-6.1-sol')! < 1_050_000)
-  assert.ok(MODEL_OUTPUT_TOKEN_LIMITS.get('inclusionai/ling-3.1-flash:free')! < 262_144)
+  assert.ok(MODEL_OUTPUT_TOKEN_LIMITS.get('inclusionai/ling-3.0-flash-sante:free')! < 262_144)
 })

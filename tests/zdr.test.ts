@@ -17,8 +17,8 @@ import {
   supportsZeroDataRetention,
 } from '../src/capabilities.ts'
 
-test('the ZDR exception list is the CLI registry exclusion set (command-code@1.82.1)', () => {
-  // Re-verified at `dist/cli.mjs` 1.82.1: the negated canonical-ID membership
+test('the ZDR exception list is the CLI registry exclusion set (command-code@1.82.2)', () => {
+  // Re-verified at `dist/cli.mjs` 1.82.2: the negated canonical-ID membership
   // predicates retain the same union across both route tables, cross-checked
   // against the public catalog. A sync that moves
   // membership must be a deliberate diff. 1.74.1 dropped `meituan/LongCat-2.0`
@@ -29,9 +29,10 @@ test('the ZDR exception list is the CLI registry exclusion set (command-code@1.8
   // this list with it. 1.79.0 added the free `stealth/glyph-cluster:free`
   // preview — the one entry the pricing page itself flags "Not routed under
   // ZDR" — bringing the set back to 21. 1.80.0 ("Add Muse Wonder") added
-  // `meta/muse-wonder-1.0` to the same exclusion set: 22 members, and both the
-  // 1.80.0 -> 1.81.0 and the 1.81.0 -> 1.82.1 steps moved no membership at all
-  // (1.82.0's `google/gemini-4-argon` is not in the exclusion set).
+  // `meta/muse-wonder-1.0` to the same exclusion set: 22 members, and the
+  // 1.80.0 -> 1.81.0, the 1.81.0 -> 1.82.1 and the 1.82.1 -> 1.82.2 steps moved
+  // no membership at all (1.82.0's `google/gemini-4-argon` is not in the
+  // exclusion set, and 1.82.2's Ling 3.1 Flash swap does not touch it either).
   assert.deepEqual([...KNOWN_NON_ZDR_MODELS].sort(), [
     'MiniMaxAI/MiniMax-M3',
     'Qwen/Qwen3.8-Max-0902',

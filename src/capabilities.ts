@@ -142,11 +142,13 @@ export const KNOWN_EFFORTS: Readonly<Record<string, readonly string[]>> = {
   // per the official registry and inputModalities:["text","image"], and the
   // same five-level set as its `gpt-6-astra` / `gpt-6-sol` predecessors.
   'gpt-6.1-sol': ['low', 'medium', 'high', 'xhigh', 'max'],
-  // command-code@1.70.0. Free during "while it lasts" (see KNOWN_DEALS) but,
-  // unlike the free stealth previews and its own `ling-3.0-flash-sante:free`
-  // predecessor, it still carries selectable efforts — so it belongs here and
-  // NOT in KNOWN_THINKING_MODELS.
-  'inclusionai/ling-3.1-flash:free': ['low', 'medium', 'high'],
+  // command-code@1.82.2. The paid graduation of the `ling-3.1-flash:free`
+  // promo this table used to carry: that row is retired in the same release
+  // (the CLI ships it `hidden`, it lost its effort list, and it is gone from
+  // both `/provider/v1/models` and the pricing page), so it is named nowhere in
+  // this file any more. Three selectable levels, text-only input, Go tier —
+  // like its `mistral-large-4` neighbour, and unlike the free stealth previews.
+  'inclusionai/ling-3.1-flash': ['low', 'medium', 'high'],
   // command-code@1.75.0 ("Add Mistral Large 4") — the only model the 1.74.3 ->
   // 1.77.0 train added. A three-level set; Vision per the official registry and
   // the CLI's inputModalities:["text","image"] (see `KNOWN_IMAGE_MODELS`), and
@@ -485,22 +487,20 @@ export function requiresMessagesEndpoint(modelId: string): boolean {
  * **Generated — do not hand-edit.** `scripts/sync-output-limits.mjs` rewrites
  * this literal from models.dev; run it after a catalog sync, and use its
  * `--check` in CI. Command Code resells these models through their VENDOR's own
- * API, so the vendor's published ceiling is the value recorded: 77 of the 89
- * catalog ids as of 2026-10-14. Each row carries a comment naming the entry it
+ * API, so the vendor's published ceiling is the value recorded: 76 of the 89
+ * catalog ids as of 2026-10-15. Each row carries a comment naming the entry it
  * came from.
  *
- * Two of those 77 rest on more than a vendor lookup, both hand-recorded in the
- * script's `MANUAL_CEILINGS`. `gpt-6.1-sol` (128000) comes from OpenAI's own row
- * and is corroborated by every other provider carrying it.
- * `inclusionai/ling-3.1-flash:free` (32768) has no models.dev row at all, so it
- * takes the Ling family's uniform ceiling; `inclusionai/ling-3.0-flash-sante:free`
- * (32768) lost both its vendor row and its unanimous third-party vote (vercel
- * files 32000), and is pinned so a regeneration cannot drop a live model's
- * ceiling back to the default. All are still correctable — a stricter gateway
- * costs one refused request, and `streamRequest()` remembers what the endpoint
- * said.
+ * One of those 76 rests on more than a vendor lookup, hand-recorded in the
+ * script's `MANUAL_CEILINGS`: `inclusionai/ling-3.0-flash-sante:free` (32768)
+ * lost both its vendor row and its unanimous third-party vote (vercel files
+ * 32000), and is pinned so a regeneration cannot drop a live model's ceiling
+ * back to the default. (`gpt-6.1-sol` (128000) needs no pin — OpenAI's own row
+ * carries it and every other provider carrying the id agrees.) All are still
+ * correctable — a stricter gateway costs one refused request, and
+ * `streamRequest()` remembers what the endpoint said.
  *
- * The 12 unlisted models are ones no vendor publishes and the aggregators
+ * The 13 unlisted models are ones no vendor publishes and the aggregators
  * disagree about. They are NOT a gap: a refusal states the ceiling in full, and
  * `streamRequest()` reads it off, retries once and remembers it for the model
  * (issue #71). A vendor figure the gateway turns out to be stricter than costs
@@ -579,8 +579,6 @@ export const MODEL_OUTPUT_TOKEN_LIMITS: ReadonlyMap<string, number> = new Map([
   ['gpt-6.1-sol', 128000],
   // manual: no vendor row and no longer unanimous (vercel 32000); Ling family ceiling 32768, see MANUAL_CEILINGS
   ['inclusionai/ling-3.0-flash-sante:free', 32768],
-  // manual: no models.dev row; Ling family ceiling 32768, see MANUAL_CEILINGS
-  ['inclusionai/ling-3.1-flash:free', 32768],
   // 1 provider(s), unanimous
   ['meituan/LongCat-2.0', 131072],
   // meta
@@ -751,11 +749,11 @@ export const KNOWN_PLANS: Readonly<Record<string, string>> = {
   // command-code@1.52.0; free on every plan ("up to 100 requests a day"),
   // successor to the retired `inclusionai/ling-3.0-flash-free` promo.
   'inclusionai/ling-3.0-flash-sante:free': 'go',
-  // command-code@1.70.0; free on every plan including Go — the embedded
-  // availability is the "all":true shape (individual-go through teams-pro),
-  // same as its `ling-3.0-flash-sante:free` predecessor and unlike the
-  // Max-only `gpt-6.1-sol` below.
-  'inclusionai/ling-3.1-flash:free': 'go',
+  // command-code@1.82.2; the paid successor of the retired
+  // `ling-3.1-flash:free` promo. The pricing page's embedded availability
+  // grants every tier (individual-go through teams-pro) — the "all":true shape
+  // shared with its `ling-3.0-flash-sante:free` predecessor.
+  'inclusionai/ling-3.1-flash': 'go',
   // command-code@1.44.0; on every plan including Go, like its 1.2 Contributor
   // sibling.
   'meta/muse-spark-1.2-contributor': 'go',
@@ -1042,12 +1040,14 @@ export const KNOWN_DEALS: Readonly<Record<string, KnownDeal>> = {
   // command-code@1.52.0; free "up to 100 requests a day" with no published end
   // date, so a permanent-style deal like the stealth previews below.
   'inclusionai/ling-3.0-flash-sante:free': { label: 'FREE', free: true },
-  // command-code@1.70.0; 100% off "Free while it lasts" with the same
-  // 100-requests-a-day cap as its `ling-3.0-flash-sante:free` predecessor and
-  // likewise no fixed end date, so no `expiresAt`. The pricing page publishes it
-  // at a literal zero, which `modelPriceTable()` serves from this deal, so it
-  // gets no row in the vendored price table either.
-  'inclusionai/ling-3.1-flash:free': { label: 'FREE', free: true },
+  // `inclusionai/ling-3.1-flash:free` (command-code@1.70.0, 100% off "Free
+  // while it lasts", the `ling-3.0-flash-sante:free` successor) left this map
+  // on 2026-10-15: command-code@1.82.2 ships the row as `hidden`, drops its
+  // selectable efforts, and the model is gone from both
+  // `/provider/v1/models` and the pricing page — the same retirement path
+  // `meituan/LongCat-2.0:free` and `stealth/space-bunny-alpha` took. Its paid
+  // graduation `inclusionai/ling-3.1-flash` is priced normally and carries no
+  // deal.
   // command-code@1.79.0 ("Add Glyph Cluster as a free model, 100 requests a
   // day"): 100% off "Free while the preview lasts", the same 100-requests-a-day
   // cap as its Ling predecessors and likewise no published end date, so no

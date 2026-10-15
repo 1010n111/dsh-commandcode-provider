@@ -19,15 +19,17 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
     themselves are NOT a reliable source since the 2026-09-30 reformat**: `/docs/plans/go|goat|pro` now emit
     a rendered `minPlanName` instead of an availability map, `/docs/plans/max` dropped its table entirely,
     and `/docs/plans/provider` became the Provider API reference. Strict superset chain; every catalog ID
-    covered exactly once (re-verified at command-code@1.82.1, 2026-10-14 — the public catalog serves 89
+    covered exactly once (re-verified at command-code@1.82.2, 2026-10-15 — the public catalog serves 90
     models: `stealth/pixel-canary` left it when 1.73.1 retired that stealth preview, `stealth/space-bunny-alpha`
     followed when 1.74.3 hid it, `mistral/mistral-large-4` joined in 1.75.0, the 1.78.0/1.79.0 pair added
     `claude-haiku-5-5` on Pro and the free `stealth/glyph-cluster:free` on Go, 1.80.0 added
-    `meta/muse-wonder-1.0` on Max, and 1.82.0 added `google/gemini-4-argon` on Pro. The retired previews above are
+    `meta/muse-wonder-1.0` on Max, 1.82.0 added `google/gemini-4-argon` on Pro, and 1.82.2 swapped the
+    free `inclusionai/ling-3.1-flash:free` promo for its paid graduation `inclusionai/ling-3.1-flash` in the
+    same Go slot. The retired previews above are
     Pixel Canary and Space Bunny Alpha; Glyph Cluster remains active.
     `gpt-6.1-sol` (1.71.0) was the first **`max`** member: every lower tier false, only
     `individual-max`/`individual-ultra`/`teams-pro` true; `meta/muse-wonder-1.0` (1.80.0) is the second.
-    `inclusionai/ling-3.1-flash:free` (1.70.0) is `go`.
+    `inclusionai/ling-3.1-flash` (1.82.2; the paid graduation of the 1.70.0 free promo) is `go`.
     1.79.2 将 Haiku 5.5 的最低套餐从 Pro 下调至 GOAT，其他模型分层不变；累计可见数由
     54/63/78/86/87 变为 54/64/78/86/87，严格递增链仍成立。GOAT 套餐页明确列出 Haiku 5.5
     的 $20 月额度，Pro 页为 $30；公开目录没有新增或删除。
@@ -39,6 +41,13 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
     `individual-go-v1`／`individual-goat` 为 false，Pro 及以上全为 true），是 Gemini 家族首个高于 Flash
     系列分层的成员；累计可见数由 54/64/78/86/88 变为 **54/64/79/87/89**。1.81.0 → 1.82.1 未移动任何
     既有模型的分层或 effort 档位，ZDR 例外成员不变（`1.82.1` 无官方日志条目，结论同样来自产物级静态比对）。
+    1.82.2（该版同样没有官方日志条目，结论来自产物级静态比对）是一次「免费转付费」换位，不新增可见模型：
+    `inclusionai/ling-3.1-flash:free` 退役——CLI 把该行标为 `hidden` 并剥掉它的 effort 档位，公开目录
+    （`/provider/v1/models`）与定价页双双下架——同一 Go 档位由付费的 `inclusionai/ling-3.1-flash`
+    （$0.3/$0.9/$0.06，无 Vision）接管，因此累计可见数保持 54/64/79/87/89。同轮定价页新增
+    `Qwen/Qwen3.8-Max-Prime`（GOAT 档、100 万上下文、Vision、$4/$12/$0.5/$5），但 **CLI 1.82.2 注册表里
+    没有这个 id**（全产物搜索 `prime` 只命中会话分享函数与提示词示例）；按「能力标记必须与实际 wire 行为
+    一致」，本轮**不录入任何快照族**，只在本文件记录，等 CLI 注册后再同步。
     At command-code@1.77.0 (2026-10-07) the catalog served 85 and read 53/62/76/84/85, unchanged from
     the 1.74.1 check on 2026-10-03; at
     command-code@1.73.0 (2026-10-01) it served 86 and read 54/63/77/85/86.
@@ -104,6 +113,9 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
     slug resolution) and is read through `modelAllowanceFor()`; 2026-09-30 已按官网支持 Go、GOAT、Pro。
     零值展示为零，旧来源缺少 Go 时不猜测；额度与 Provider API 权限独立。
     同步入口遇到未知维度、无效额度或交叉校验失败会阻止生成与写入，保留旧快照。
+    `ling-3.1-flash`（1.82.2 新增行）的定价记录另带一个**尚未生效**的 `planBudgetSteps`：
+    `2026-10-15T12:30:00Z`（北京时间 20:30）起 GOAT／Pro 由 $20／$30 上调至 $100／$110，Go 保持 $6。
+    生成器只写页面**当前**值，因此该时刻之后重跑 `--check` 会报额度漂移——这是预期行为，不是缺陷。
     See [usage and cost](usage-and-cost.md) for how the settings page picks the
     bracket from the account pool.
   - `KNOWN_DEALS` — catalog ID → `{ label, expiresAt?, free? }` from the pricing page's `#deals`.
@@ -133,14 +145,15 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
     the normalized id tail — Command Code namespaces the id, the vendor does not), the same entry with a
     `free` suffix dropped (both spellings occur: `inclusionai/ling-3.0-flash-sante:free` and
     `poolside/laguna-s-2.1-free`), then unanimity across every provider carrying the id.
-    **Re-verified at command-code@1.82.1 (2026-10-14): 77 of 89 ids are recorded, 12 left to the runtime.**
+    **Re-verified at command-code@1.82.2 (2026-10-15): 76 of 89 ids are recorded, 13 left to the runtime.**
     Each row carries a comment naming its source entry, and the ten `claude-*` ids resolve to Anthropic's
     128 000 (except `claude-haiku-4-5-20251001` at 64 000, which is what `DEFAULT_MESSAGES_MAX_TOKENS`
     already guessed for the whole family — now confirmed rather than assumed). `google/gemini-4-argon`
     (1.82.0) resolved from models.dev's own `google` row at 32 768.
-    The 12 unlisted ids are ones models.dev either lacks entirely or files inconsistently across providers
+    The 13 unlisted ids are ones models.dev either lacks entirely or files inconsistently across providers
     (`Qwen/Qwen3.8-27B`, `Qwen/Qwen3.8-Max-0902`, `deepseek/deepseek-v4.1-flash`,
-    `deepseek/deepseek-v4.1-flash-fast`, `deepseek/deepseek-v4-flash-fast`, `mistral/mistral-large-4`,
+    `deepseek/deepseek-v4.1-flash-fast`, `deepseek/deepseek-v4-flash-fast`, `inclusionai/ling-3.1-flash`,
+    `mistral/mistral-large-4`,
     `moonshotai/Kimi-K2.5`, `stealth/glyph-cluster:free`, `tencent/hy3-paid`, `tencent/hy4-preview`,
     `thinkingmachines/inkling-small`, `zai-org/GLM-5.2-Fast`),
     and they are served by the runtime instead: `streamRequest()` reads the ceiling off the endpoint's own
@@ -152,10 +165,13 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
     refresh replaces that gateway's published values, including removal of fields no longer present.
     Two arrivals are worth naming because neither came from a vendor lookup alone. `gpt-6.1-sol` is
     128 000 from OpenAI's own row, corroborated by all seven other providers carrying it.
-    `inclusionai/ling-3.1-flash:free` has **no models.dev entry at all** as of 2026-09-30 — the newest
-    Ling row anywhere in the catalog is `ling-3.0-flash`, published at exactly 32 768 output by every
-    provider carrying it — so it is recorded in the script's **`MANUAL_CEILINGS`** map rather than left
-    to start at `DEFAULT_MESSAGES_MAX_TOKENS`. That map is the sanctioned way to hand-record a ceiling a
+    `inclusionai/ling-3.0-flash-sante:free` has **no vendor row and lost its unanimous third-party vote**
+    (vercel files 32 000 against three providers at 32 768) — 32 768 is the Ling family's established
+    ceiling, the figure every other provider carrying a Ling row publishes — so it is recorded in the
+    script's **`MANUAL_CEILINGS`** map rather than left to start at `DEFAULT_MESSAGES_MAX_TOKENS`. Its
+    `ling-3.1-flash:free` successor carried the same hand-recorded 32 768 until command-code@1.82.2 retired
+    that promo; the paid `ling-3.1-flash` files three conflicting provider values, so it is deliberately
+    left to runtime learning instead of being pinned to a guess. That map is the sanctioned way to hand-record a ceiling a
     rewrite would otherwise drop: keyed by id, each entry names the evidence it rests on, and it is
     consulted *before* the vendor lookup so `--check` stays clean. Use it only for a documented
     inference resting on uniform family-wide data — never to paper over a split vote, which is what the
