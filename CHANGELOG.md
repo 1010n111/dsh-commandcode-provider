@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.3] - 2026-10-15
+
+### Changed
+
+- 同步 Command Code CLI `1.82.1` → `1.82.2`：请求版本标识（`x-command-code-version`）随之上调。`1.82.1` 与 `1.82.2` **均无官方日志条目**，结论来自产物级静态比对——两版 `dist/cli.mjs` 的 API 路径（144 条）、`x-` 请求头（14 条）与主机（32 个）集合差为空，Provider API 的 wire 协议不变。
+- 模型目录换位：`inclusionai/ling-3.1-flash:free` 退役，付费的 `inclusionai/ling-3.1-flash` 接管同一 Go 档位（262 144 上下文、仅文本输入、三档推理强度 `low`／`medium`／`high`，定价 $0.3／$0.9／$0.06）。退役判据三条同时成立：CLI 把该行标为 `hidden`、剥掉它的 `reasoningEfforts`，该 id 又从公开目录（`/provider/v1/models`，90 条）与定价页双双下架——与 `meituan/LongCat-2.0:free`、`stealth/space-bunny-alpha` 的退役路径一致（单看 `hidden` 不足以判定：CLI 中大量活跃免费模型同样带该标记）。推理档位、最低套餐与免费促销三张表同步移除该免费项，选择器不再给出一个已下线的选项。
+- 价格表与输出上限表重新生成：新增 `ling-3.1-flash` 价格行（额度 Go $6／GOAT $20／Pro $30）与 `qwen-3.8-max-prime` 行（$4／$12／$0.5／$5）；`glm-5.3-flash` 的每月额度由 $60／$70 上调至 **$100／$100**（官网页面变化，与 CLI 版本无关）。输出上限表删除已退役的 `:free` 行，新增的付费版因 models.dev 三家取值冲突交由运行时学习（写入数 77 → 76、未列 12 → 13）。`ling-3.1-flash` 的定价记录另带一个**尚未生效**的 `planBudgetSteps`：`2026-10-15T12:30:00Z` 起 GOAT／Pro 由 $20／$30 上调至 $100／$110，生成器按页面当前值写入，故该时刻之后重跑 `--check` 会报额度漂移。
+- 未录入项：`Qwen/Qwen3.8-Max-Prime`（最低 GOAT 档、100 万上下文、支持图像输入、$4／$12／$0.5／$5）已在官方定价页与公开目录可用，但 **CLI 1.82.2 未注册该模型**，按「能力标记必须与实际 wire 行为一致」不录入任何能力快照，只在参考文档记录待观察；`src/model-prices.ts` 作为定价页的逐行镜像仍收录其价格（漏行会让 `--check` 永久报漂移），具名请求可计价，但选择器不展示、也不做图像能力宣告。
+- 零数据保留（ZDR）例外集 22 条、峰值计价与订阅映射逐项核对**无变化**；测试断言与版本标注同步，构建产物重建。
+
 ## [0.13.2] - 2026-10-15
 
 ### Added
