@@ -1262,6 +1262,7 @@ test('the context fields accept the compact shorthand in binary units', async ()
     ['128K', 131_072],
     ['384K', 393_216],
     ['1M', 1_048_576],
+    ['1.5K', 1536],
   ] as const
   for (const [text, tokens] of examples) {
     controller.edit('contextWindow', text)
@@ -1276,6 +1277,24 @@ test('the context fields accept the compact shorthand in binary units', async ()
   assert.equal(row.invalid, false)
   await controller.save()
   assert.deepEqual(scope.state.value.contextWindowOverrides, { 'poolside/laguna-s-2.1-free': 131_072 })
+})
+
+test('上下文普通小数阻止整批保存，按模型覆盖使用相同整数约束', async () => {
+  const { controller, scope } = makeController()
+  controller.edit('contextWindow', '32768.5')
+  controller.edit('apiBase', 'https://context-whole.invalid')
+  assert.equal(controller.state().contextWindow.invalidReason, 'format')
+  await controller.save()
+  assert.equal(scope.state.value.contextWindow, undefined)
+  assert.equal(scope.state.value.apiBase, undefined)
+
+  controller.discard()
+  controller.editContextWindowOverrides({ model: '32768.5' })
+  controller.edit('contextWindow', '65536')
+  assert.equal(controller.state().contextWindowOverrides[0]?.invalidReason, 'format')
+  await controller.save()
+  assert.equal(scope.state.value.contextWindowOverrides, undefined)
+  assert.equal(scope.state.value.contextWindow, undefined)
 })
 
 test('compact shorthand is case-insensitive and still bounds-checked', async () => {

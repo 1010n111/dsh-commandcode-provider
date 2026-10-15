@@ -2651,6 +2651,74 @@ test('custom context lengths fall back to the catalog when a value is out of bou
   }
 })
 
+for (const protocol of ['cli', 'openai', 'messages'] as const) {
+  const cases = [
+    { name: '调大全局窗口', catalog: 8192, global: 131_072, expected: 131_072 },
+    { name: '按模型调大优先于全局', catalog: 8192, global: 32_768, perModel: 131_072, expected: 131_072 },
+    { name: '调小窗口', catalog: 1_000_000, global: 32_768, expected: 32_768 },
+    { name: '保留公布输出上限', catalog: 8192, global: 131_072, published: 16_384, expected: 16_384 },
+    { name: '未设置保持目录预算', catalog: 8192, expected: 8192 },
+  ] as const
+  for (const scenario of cases) {
+    test(`${protocol} 上下文预算：${scenario.name}同时作用于宿主默认值和实际请求`, async () => {
+      const model = 'deepseek/deepseek-v4-flash'
+      const sent: number[] = []
+      const adapter = makeAdapter({
+        options: () => ({ apiBase: `https://context-${protocol}-${scenario.name}.invalid`, workingDir: '/tmp', modelsCachePath: '',
+          requestTimeoutMs: 1000, streamIdleTimeoutMs: 1000, protocol,
+          ...('global' in scenario ? { contextWindow: scenario.global } : {}),
+          ...('perModel' in scenario ? { contextWindowOverrides: { [model]: scenario.perModel } } : {}),
+        }),
+        fetchImpl: (async (url, init) => {
+          if (String(url).endsWith('/provider/v1/models')) return Response.json({ object: 'list', data: [{
+            id: model, name: '合成窗口模型', context_length: scenario.catalog,
+            supported_endpoints: [protocol === 'messages' ? '/messages' : '/chat/completions'],
+            ...('published' in scenario ? { max_output_tokens: scenario.published } : {}),
+          }] })
+          const body = JSON.parse(String(init?.body))
+          sent.push(protocol === 'cli' ? body.params.max_tokens : body.max_tokens)
+          return new Response(settlementFrames(protocol).join(''))
+        }) as typeof fetch,
+      })
+      const info = await adapter.resolveModel('commandcode', model)
+      assert.equal(info.defaultMaxTokens, scenario.expected)
+      // 显式上限可低于默认值，但不能绕过有效窗口或模型自身输出上限。
+      const request = { provider: 'commandcode', model, messages: [userMessage('合成请求')] }
+      for (const maxTokens of [undefined, 4096, 1_000_000]) {
+        await collect(adapter.stream({ ...request, ...(maxTokens === undefined ? {} : { maxTokens }) }))
+      }
+      assert.deepEqual(sent, [scenario.expected, 4096, scenario.expected])
+    })
+  }
+
+  test(`${protocol} 调大窗口后仍学习输出拒绝并仅降档一次`, async () => {
+    const model = 'deepseek/deepseek-v4-flash'
+    const sent: number[] = []
+    const adapter = makeAdapter({
+      options: () => ({ apiBase: `https://context-learning-${protocol}.invalid`, workingDir: '/tmp', modelsCachePath: '',
+        requestTimeoutMs: 1000, streamIdleTimeoutMs: 1000, protocol, contextWindow: 131_072 }),
+      fetchImpl: (async (url, init) => {
+        if (String(url).endsWith('/provider/v1/models')) return Response.json({ object: 'list', data: [{
+          id: model, name: '合成窗口模型', context_length: 8192, max_output_tokens: 90_000,
+          supported_endpoints: [protocol === 'messages' ? '/messages' : '/chat/completions'],
+        }] })
+        const body = JSON.parse(String(init?.body))
+        sent.push(protocol === 'cli' ? body.params.max_tokens : body.max_tokens)
+        if (sent.length === 1) return new Response(JSON.stringify({ error: { message:
+          'max_tokens: 90000 > 20000, which is the maximum allowed number of output tokens' } }), { status: 400 })
+        return new Response(settlementFrames(protocol).join(''))
+      }) as typeof fetch,
+    })
+    assert.equal((await adapter.resolveModel('commandcode', model)).defaultMaxTokens, 90_000)
+    const request = { provider: 'commandcode', model, messages: [userMessage('合成请求')] }
+    await collect(adapter.stream(request))
+    assert.deepEqual(sent, [90_000, 20_000])
+    assert.equal((await adapter.resolveModel('commandcode', model)).defaultMaxTokens, 20_000)
+    await collect(adapter.stream(request))
+    assert.deepEqual(sent, [90_000, 20_000, 20_000])
+  })
+}
+
 test('catalog and window probes ask for uncompressed Command Code responses', async () => {
   const paths: string[] = []
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {

@@ -230,16 +230,16 @@ export interface Config {
   modelVisibility?: Record<string, boolean>
   /**
    * 自定义上下文长度（全局值，issue #86）：宣告给宿主的上下文窗口不再取
-   * 模型目录的 `context_window`，而用这个值——上下文计量、自动压缩时机与
+   * 模型目录的 `context_length`，而用这个值——上下文计量、自动压缩时机与
    * 选择器上的上下文标注都跟随它。对没有 {@link contextWindowOverrides}
    * 条目的每个目录模型生效；留空（默认）跟随目录。只对目录中存在的模型
-   * 生效，未知模型保持既有的「无上下文宣告」。范围 1 – 10 000 000 token。
+   * 生效，未知模型保持既有的「无上下文宣告」。范围 1 – 10 000 000 个整数 token。
    */
   contextWindow?: number
   /**
    * 按模型的自定义上下文长度，键为目录模型 id；优先于全局
-   * {@link contextWindow}。非法条目（空 id、非数值、越界）静默失效并回落，
-   * 与 `modelVisibility` 的手工配置容错一致。
+   * {@link contextWindow}。配置校验拒绝非整数及越界值；绕过校验的程序化
+   * 调用还会丢弃无效条目，按全局值、目录值的顺序回落。
    */
   contextWindowOverrides?: Record<string, number>
   /**
@@ -345,8 +345,8 @@ export const Config: z<Config> = z.object(markVolatileFields({
   modelVisibility: z.dict(z.boolean()),
   // 自定义上下文长度（issue #86）：全局值与按模型覆盖共用同一边界，越界
   // 在 schema 层就被拒绝，页面输入用相同常量在输入时报错。
-  contextWindow: z.number().min(CONTEXT_WINDOW_MIN).max(CONTEXT_WINDOW_MAX),
-  contextWindowOverrides: z.dict(z.number().min(CONTEXT_WINDOW_MIN).max(CONTEXT_WINDOW_MAX)),
+  contextWindow: z.number().min(CONTEXT_WINDOW_MIN).max(CONTEXT_WINDOW_MAX).step(1),
+  contextWindowOverrides: z.dict(z.number().min(CONTEXT_WINDOW_MIN).max(CONTEXT_WINDOW_MAX).step(1)),
   webSearch: z.boolean().default(true),
   showSidebarQuota: z.boolean().default(false),
   accounts: z.array(z.object({

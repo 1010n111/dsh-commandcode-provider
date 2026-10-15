@@ -3,7 +3,7 @@
 
 import { MIN_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS } from '../timeout-limits.ts'
 import { modelIsVisible, readVisibility } from '../model-visibility.ts'
-import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, readContextWindowOverrides } from '../context-window.ts'
+import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, isValidContextWindow, readContextWindowOverrides } from '../context-window.ts'
 import type { SettingsMutationResult, SettingsPathOp } from './settings-scope.ts'
 import { SettingsWriter, DEFAULT_API_KEY_REF, accountModelMap, writeCompleted, type StoredRule, type SettingsWriteIntent, type SettingsWriteResult } from './settings-write.ts'
 export { DEFAULT_API_KEY_REF, accountModelMap } from './settings-write.ts'
@@ -285,9 +285,9 @@ function numberField(field: string, bounds?: { min?: number; max?: number }): Fi
  * 1M → 1 048 576 (1024 × 1024), so the common power-of-two windows land on
  * their exact values instead of 1000-based rounding.
  *
- * The suffix path is the ONLY addition — plain text falls through to the
- * same {@link numberField} parse, so empty-clears and non-numeric rejection
- * stay identical, and the converted value is bounds-checked against the same
+ * Plain text uses the {@link numberField} parse plus an integer check;
+ * shorthand converts to whole tokens first. Empty-clears and bounds
+ * errors stay identical, and the converted value is bounds-checked against the same
  * 1 – 10,000,000 range (the Host schema would reject an overshoot at save
  * time with only a generic failure; naming `tooLarge` here says which).
  * `Math.round` keeps fractional shorthand like `1.5K` on whole tokens.
@@ -301,7 +301,13 @@ function contextWindowField(field: string, bounds: { min: number; max: number })
     format: plain.format,
     parse: (text) => {
       const compact = COMPACT_TOKENS.exec(text.trim())
-      if (compact === null) return plain.parse(text)
+      if (compact === null) {
+        const parsed = plain.parse(text)
+        // 时长字段允许小数，词元计数则必须是整数；不能直接沿用通用数字字段的放行结果。
+        return parsed.kind === 'set' && !isValidContextWindow(parsed.value)
+          ? { kind: 'invalid', reason: 'format' }
+          : parsed
+      }
       const value = Math.round(Number(compact[1]) * (compact[2]!.toLowerCase() === 'k' ? 1024 : 1024 * 1024))
       if (value < bounds.min) return { kind: 'invalid', reason: 'tooSmall' }
       if (value > bounds.max) return { kind: 'invalid', reason: 'tooLarge' }

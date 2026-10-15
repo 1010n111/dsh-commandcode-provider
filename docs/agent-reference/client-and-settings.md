@@ -249,13 +249,15 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   `contextWindowField`——在 `numberField` 之上只加简写后缀一层：`32K`/`1M` 按**二进制**换算
   （×1024 / ×1024²，32K = 32 768、1M = 1 048 576），换算后仍走同一对
   `CONTEXT_WINDOW_MIN/MAX` 边界（直接复用 `src/context-window.ts` 纯模块，客户端可打包导入，
-  无需镜像字面量），空值清除与非数值拒绝完全沿用 `numberField`，落盘永远是数字；
+  无需镜像字面量），空值清除沿用 `numberField`，额外校验普通数字必须是整数；
+  `1.5K` 等简写先换算并取整，落盘永远是整数；
   这两个输入不带 `inputMode=numeric`，后缀需要字母键。按模型覆盖沿用 `visibleModels` 的独立草稿模式——
   `editContextWindowOverrides` 收整表原始文本，空值行
   渲染但保存时丢弃（不置 dirty），无法解析的行**整体阻止本次保存**（连同同批的普通字段），确认后按
   保存前草稿对象的身份清理。写入经 `save` 意图追加一次 `set` 整表到用户层：清空写 `{}` 而非 `unset`，
-  避免基础层（组合配置）的旧值重新露出。非法条目在 `resolveAdapterOptions`（`readContextWindowOverrides`）
-  与适配器（`effectiveContextWindow`）两处判定，坏值回落目录而非上线；未知模型（无目录条目）保持无
+  避免基础层（组合配置）的旧值重新露出。配置结构以 `step(1)` 拒绝小数，非数值与越界值同样拒绝。
+  只有绕过配置校验的程序化调用，才由 `resolveAdapterOptions`（`readContextWindowOverrides`）
+  与适配器（`effectiveContextWindow`）清洗无效值，按有效全局值、目录值依次回落；未知模型（无目录条目）保持无
   `context` 宣告。覆盖行的模型下拉经 `allowlistedModels`（`src/client/model-select.ts`）限于
   「模型」白名单的可见模型（显示全部即整个目录），行带「模型 / 上下文长度」列头
   （`.cc-contextHead`，宽度与行内三列逐一对齐），`<select>` 用 `appearance:none` + 自绘

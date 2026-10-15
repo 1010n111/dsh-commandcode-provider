@@ -18,10 +18,11 @@ import {
   readContextWindowOverrides,
 } from '../src/context-window.ts'
 
-test('isValidContextWindow accepts only finite values inside the bounds', () => {
+test('isValidContextWindow accepts only whole token counts inside the bounds', () => {
   assert.equal(isValidContextWindow(CONTEXT_WINDOW_MIN), true)
   assert.equal(isValidContextWindow(CONTEXT_WINDOW_MAX), true)
   assert.equal(isValidContextWindow(128_000), true)
+  assert.equal(isValidContextWindow(32_768.5), false)
   assert.equal(isValidContextWindow(0), false)
   assert.equal(isValidContextWindow(-1), false)
   assert.equal(isValidContextWindow(CONTEXT_WINDOW_MAX + 1), false)
@@ -48,6 +49,7 @@ test('readContextWindowOverrides keeps only valid entries and returns undefined 
     'deepseek/deepseek-v4-pro': 64_000,
     zero: 0,
     negative: -1,
+    fractional: 32_768.5,
     '': 128_000,
     notANumber: '42',
   })
@@ -83,5 +85,9 @@ test('effectiveContextWindow resolves per-model over global over catalog', () =>
   assert.equal(
     effectiveContextWindow(128_000, 'a', { contextWindow: 64_000, contextWindowOverrides: { a: Number.NaN } }),
     64_000,
+  )
+  assert.equal(
+    effectiveContextWindow(128_000, 'a', { contextWindow: 32_768.5, contextWindowOverrides: { a: 64_000.5 } }),
+    128_000,
   )
 })

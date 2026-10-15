@@ -15,21 +15,21 @@ export interface ContextWindowOptions {
 }
 
 /**
- * 判定一个值能否作为自定义上下文长度：有限数且落在边界内。
+ * 判定一个值能否作为自定义上下文长度：边界内的安全整数，符合宿主模型元数据约束。
  *
  * 程序化构造的连接可能绕过 schemastery 归一化，所以 `resolveAdapterOptions`
  * 也要重新判定——越界或非数值直接丢弃，回落到目录公布值，而不是让请求带着
  * 一个网关会拒绝的窗口上线。
  */
 export function isValidContextWindow(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
+  return typeof value === 'number' && Number.isSafeInteger(value)
     && value >= CONTEXT_WINDOW_MIN && value <= CONTEXT_WINDOW_MAX
 }
 
 /**
  * 只接收合法条目的按模型覆盖表；空表、非对象与非法数值一律视为未设置。
- * 手工编辑的配置文档可以携带任何形状，坏条目必须静默失效而不是隐藏模型或
- * 把非法窗口送上 wire。返回新对象；未设置时为 `undefined`。
+ * 配置校验会拒绝非整数或越界值；本函数额外保护绕过配置校验的程序化调用，
+ * 丢弃坏条目，不把非法窗口交给宿主。返回新对象；未设置时为 `undefined`。
  */
 export function readContextWindowOverrides(raw: unknown): Readonly<Record<string, number>> | undefined {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined

@@ -183,10 +183,13 @@ Task-specific reference moved from the former root `AGENTS.md`. All source and t
   - **自定义上下文长度（issue #86）**：`resolveModel()` 与 `listModels()` 宣告的窗口是
     `effectiveContextWindow(catalog, model, connection)`——`contextWindowOverrides`（按模型）→
     `contextWindow`（全局）→ 目录 `context_length`——选择器标注与宿主的 `context.contextWindow`
-    用同一个值；`defaultMaxTokens` 把该值纳入 `min`（`Math.min(entry.maxTokens, window,
-    DEFAULT_GENERATE_MAX_TOKENS)`），调小的自定义窗口同样压低输出预算，调大仍受公布值与运行时
-    学习上限约束。无目录条目的未知模型保持无 `context` 宣告。边界与清洗在 `src/context-window.ts`
-    （与设置页共用），适配器在程序化构造绕过 schemastery 时仍二次判定，坏值回落目录。
+    用同一个值；`defaultMaxTokens` 与实际请求都经 `catalogModelMaxTokens()` 按有效窗口重新推导，
+    不能复用已经受旧目录窗口限制的 `entry.maxTokens`。公布输出上限取本次独立目录记录的
+    `publishedMaxTokens`，缺失时取模型快照或协议默认上限，再取同网关更低学习上限及
+    `DEFAULT_GENERATE_MAX_TOKENS`；显式请求值还会进一步取小。等待凭据、轮换和重试不会转读
+    并发刷新后的目录。无目录条目的未知模型保持无 `context` 宣告及原有预算行为。
+    自定义值必须为边界内整数：配置校验拒绝坏值，`src/context-window.ts` 与设置页共用清洗；
+    适配器对绕过配置校验的程序化值仍二次判定，按有效全局值、目录依次回落。
   - The picker list is **sorted free models first, then by plan tier, then name** (`compareByPlan()` in
     `src/capabilities.ts`; free = `KNOWN_DEALS` `free: true` via `isFreeModel()`, tier weights in
     `PLAN_ORDER`): FREE → Go → GOAT → Pro → Provider → Max, alphabetical within each group, unknown plans

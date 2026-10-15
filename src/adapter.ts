@@ -79,7 +79,7 @@ import {
   type CommandCodeBillingAccess,
 } from './capabilities.ts'
 
-import { GatewayFacts, modelOutputTokenLimit, learnedOutputLimit, outputCeilingRefusal, type CommandCodeModel } from './gateway-facts.ts'
+import { GatewayFacts, catalogModelMaxTokens, modelOutputTokenLimit, learnedOutputLimit, outputCeilingRefusal, type CommandCodeModel } from './gateway-facts.ts'
 export { DEFAULT_MAX_OUTPUT_TOKENS, MODEL_CATALOG_TTL_MS } from './gateway-facts.ts'
 
 // ---------------------------------------------------------------------------
@@ -1424,7 +1424,7 @@ export interface CommandCodeConnectionOptions {
   /**
    * 自定义上下文长度（全局值，issue #86）：对没有 {@link contextWindowOverrides}
    * 条目的目录模型，宣告给宿主的上下文窗口改用此值而非目录的
-   * `context_window`；选择器标注、`defaultMaxTokens` 预算同样跟随。
+   * `context_length`；选择器标注、`defaultMaxTokens` 预算同样跟随。
    * 留空表示完全跟随目录。
    */
   contextWindow?: number | undefined
@@ -2577,11 +2577,8 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
       ...(entry !== undefined && contextWindow !== undefined
         ? {
             context: { contextWindow },
-            // Output stays inside the ADVERTISED window: the catalog computes
-            // `maxTokens` as min(context window, published/learned ceiling), so
-            // a lowered custom window clamps the budget the same way (a raised
-            // one stays bounded by the published ceiling and runtime learning).
-            defaultMaxTokens: Math.min(entry.maxTokens, contextWindow, DEFAULT_GENERATE_MAX_TOKENS),
+            // 用有效窗口重新计算，调大时解除旧目录窗口限制；模型输出上限与网关总上限仍有效。
+            defaultMaxTokens: Math.min(catalogModelMaxTokens(connection.apiBase, entry, contextWindow), DEFAULT_GENERATE_MAX_TOKENS),
           }
         : {}),
       // Omit `reasoning` entirely for models without known effort support:
@@ -3084,7 +3081,11 @@ export class CommandCodeAdapter<C extends CommandCodeConnectionOptions = Command
     const catalog = await facts.catalog
     options.signal?.throwIfAborted()
     const modelEntry = catalog.find(row => row.id === options.model)
-    const initialMax = Math.min(options.maxTokens ?? Infinity, modelEntry?.maxTokens ?? facts.fallbackLimit, DEFAULT_GENERATE_MAX_TOKENS)
+    // 与 resolveModel 的默认预算共用推导，显式 maxTokens 和直接调用也不能沿用旧窗口。
+    const modelMax = modelEntry === undefined ? facts.fallbackLimit : catalogModelMaxTokens(
+      connection.apiBase, modelEntry, effectiveContextWindow(modelEntry.contextWindow, options.model, connection),
+    )
+    const initialMax = Math.min(options.maxTokens ?? Infinity, modelMax, DEFAULT_GENERATE_MAX_TOKENS)
     const budget = { max: initialMax, sent: initialMax }
     for (let attempt = 0; ; attempt++) {
       let delivered = false
